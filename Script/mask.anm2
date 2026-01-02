@@ -1,0 +1,23 @@
+--label:加工
+--information:動画で動画をマスク ver1.0
+--script:lua
+
+--file@path:動画ファイル
+
+local func = obj.module("mask")
+
+local base, bw, bh = obj.getpixeldata("object")
+
+obj.setoption("drawtarget","tmp")
+
+-- 上のレイヤー（マスク動画）を読み込む
+-- effect=true にしてエフェクト込みで取得
+obj.load("movie", path)
+
+-- RGBAデータ取得
+local mask, mw, mh = obj.getpixeldata("object")
+
+func.mask(base, mask, bw, bh)
+
+-- 結果を書き戻す
+obj.putpixeldata("object", base, bw, bh, "rgba")
