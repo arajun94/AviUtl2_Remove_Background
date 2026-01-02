@@ -9,7 +9,7 @@
 
 namespace util{
 
-    char* wstr2str(wchar_t* w){
+    char* wstr2str(const wchar_t* w){
         size_t len = wcstombs(nullptr, w, 0);
         char* s = (char*)malloc(len + 1);
 
@@ -18,7 +18,7 @@ namespace util{
         return s;
     }
     
-    wchar_t* str2wstr(char* w){
+    wchar_t* str2wstr(const char* w){
         size_t len = mbstowcs(nullptr, w, 0);
         wchar_t* s = (wchar_t*)malloc((len + 1) * sizeof(wchar_t));
 

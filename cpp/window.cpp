@@ -1,14 +1,15 @@
 #include <windows.h>
 #include <commctrl.h>
-#include <cstdlib>
 #include <cerrno>
+#include <cstdlib>
+#include <Shlwapi.h>
 
 #include "plugin2.h"
 #include "logger2.h"
 
 #include "util.hpp"
 
-#define PROJECT_NAME L"AviUtl SAM2"
+#define PROJECT_NAME L"AviUtl2 Remove Background"
 #define ID_BUTTON_FILE_OPEN 1001
 #define ID_EDIT_SCALE 1002
 #define ID_EDIT_FRAME_NUM 1003
@@ -19,6 +20,14 @@ LOG_HANDLE* logger;
 HWND hwnd_edit_file_path;
 HWND hwnd_edit_scale;
 HWND hwnd_edit_frame_num;
+HWND hwnd_combo_model_name;
+
+PCWSTR strItem[] = {
+    L"sam2.1_hiera_tiny",
+    L"sam2.1_hiera_small",
+    L"sam2.1_hiera_base_plus",
+    L"sam2.1_hiera_large"
+};
 
 //---------------------------------------------------------------------
 //	ログ出力機能初期化関数 (未定義なら呼ばれません)
@@ -39,6 +48,7 @@ EXTERN_C __declspec(dllexport) bool InitializePlugin(DWORD version) {
 //---------------------------------------------------------------------
 EXTERN_C __declspec(dllexport) void UninitializePlugin() {
 }
+
 
 //---------------------------------------------------------------------
 //	ウィンドウプロシージャ
@@ -74,12 +84,17 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 					break;
 				}
 				case ID_BUTTON_EXEC: {
-					PSTR venv = "C:\\ProgramData\\aviutl2\\Plugin\\python\\venv\\Scripts\\python.exe";
-					PSTR py = "C:\\ProgramData\\aviutl2\\Plugin\\python\\sam2_video.py";
-					WCHAR video_w[MAX_PATH] = {};
-					GetWindowText(hwnd_edit_file_path, video_w, MAX_PATH);
-					PSTR video = util::wstr2str(video_w);
+					PSTR venv = "C:\\ProgramData\\aviutl2\\Plugin\\ARB\\Python\\venv\\Scripts\\python.exe";
+					PSTR py = "C:\\ProgramData\\aviutl2\\Plugin\\ARB\\Python\\sam2_video.py";
+					WCHAR video[MAX_PATH] = {};
+					GetWindowText(hwnd_edit_file_path, video, MAX_PATH);
 
+					if(!PathFileExists(video)){
+						MessageBoxEx(hwnd, L"動画のパスが不正です", L"エラー", 0, 0);
+						break;
+					}
+
+					//スケール取得
 					WCHAR s[16];
 					GetWindowText(hwnd_edit_scale, s, 16);
 					wchar_t* end;
@@ -90,6 +105,7 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 						break;
 					}
 
+					//分割フレーム数取得
 					WCHAR f[16];
 					GetWindowText(hwnd_edit_frame_num, f, 16);
 					errno = 0;
@@ -99,13 +115,18 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 						break;
 					}
 
+					//モデルネーム取得
+					PCSTR model_name = util::wstr2str(strItem[SendMessage(hwnd_combo_model_name , CB_GETCURSEL , 0 , 0)]);
+
+					//Python呼び出し
 					CHAR command[1024];
-					sprintf(command, "%s %s \"%s\" %f %d", venv, py, video, scale, frame_num);
+					sprintf(command, "%s %s \"%s\" %f %d %s", venv, py, util::wstr2str(video), scale, frame_num, model_name);
+					if(system(command)!=0){
+						break;
+					}
 
-					system(command);
-
-					PSTR mask = util::decorPath(video, "_mask");
-
+					//エイリアス作成
+					PSTR mask = util::decorPath(util::wstr2str(video), "_mask");
 					CHAR alias[1024];
 					sprintf(alias, u8R"([Object]
 frame=0,100
@@ -138,7 +159,8 @@ Z軸回転=0.00
 左右=0.00
 [Object.2]
 effect.name=mask
-動画ファイル=%s)", video, mask);
+動画ファイル=%s)", util::wstr2str(video), mask);
+
 					edit_handle->call_edit_section_param(alias, [](void* alias, EDIT_SECTION* edit) {
 						// エイリアスデータからオブジェクトを作成
 						if (edit->create_object_from_alias((CHAR*)alias, edit->info->layer, edit->info->frame, 10)) {
@@ -276,6 +298,34 @@ EXTERN_C __declspec(dllexport) void RegisterPlugin(HOST_APP_TABLE* host) {
 		GetModuleHandle(0),
 		nullptr
 	);
+
+	CreateWindowEx(
+		0,
+		WC_STATIC,
+		L"使用モデル",
+		WS_VISIBLE | WS_CHILD | SS_CENTER,
+		10, 160, 200, 40,
+		hwnd,
+		nullptr,
+		GetModuleHandle(0),
+		nullptr
+	);
+
+	hwnd_combo_model_name = CreateWindowEx(
+		0,
+		L"COMBOBOX",
+		nullptr,
+		WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 
+		220 , 160 , 300 , 300 ,
+		hwnd,
+		nullptr,
+		GetModuleHandle(0),
+		nullptr
+	);
+	for (WORD i=0;i<4;i++){
+		SendMessage(hwnd_combo_model_name, CB_ADDSTRING, 0, (LPARAM)strItem[i]);
+	}
+	SendMessage(hwnd_combo_model_name, CB_SETCURSEL, (WPARAM)1, (LPARAM)0);
 
 	CreateWindowEx(
 		0,

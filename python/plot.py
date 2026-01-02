@@ -38,6 +38,8 @@ class PointHandler:
 
         self.undo_stack = []
 
+        self.points = points
+
         # self.plot_objects, = ax.plot(self.points[:,0], self.points[:,1], 'bo', picker=5)
         self.sc = self.ax.scatter(self.points[:,0], self.points[:,1], c=self.points[:,2], edgecolor='white', linewidth=1.25, cmap=cmaprb, picker=5, vmin=0, vmax=1)
 

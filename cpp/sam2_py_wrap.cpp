@@ -33,22 +33,7 @@ int main(int argc, char** argv){
     if (PyStatus_Exception(status)) {
         Py_ExitStatusException(status);
     }
-    /*
-    PSTR pystring = "import os\n"
-"import glob\n"
-"import sys\n"
-"import io\n"
-"_stdout_buffer = io.StringIO()\n"
-"_stderr_buffer = io.StringIO()\n"
-"sys.stdout = _stdout_buffer\n"
-"sys.stderr = _stderr_buffer\n"
-"print('test')\n"
-"from tkinter import messagebox\n"
-"messagebox.showinfo('Python', '開始します') \n";
-    if (PyRun_SimpleString(pystring) != 0) {
-        PyErr_Print();
-    }
-    printf("\n%s",pystring);*/
+    
     wchar_t *py_argv[3];
     py_argv[0] = Py_DecodeLocale("sam2_video.py", NULL);
     py_argv[1] = Py_DecodeLocale(argv[1], NULL);

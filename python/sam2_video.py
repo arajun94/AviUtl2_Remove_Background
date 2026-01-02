@@ -7,10 +7,16 @@
 # opencvで点を選択
 # out 出力をルダにマスクaviを保存
 
+model_cfg = {
+    "sam2.1_hiera_tiny": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "sam2.1_hiera_small": "configs/sam2.1/sam2.1_hiera_s.yaml",
+    "sam2.1_hiera_base_plus": "configs/sam2.1/sam2.1_hiera_b+.yaml",
+    "sam2.1_hiera_large": "configs/sam2.1/sam2.1_hiera_l.yaml"
+}
 
-sam2_checkpoint = "C:\\ProgramData\\aviutl2\\Plugin\\python\\sam2.1_hiera_small.pt"
-model_cfg = "configs/sam2.1/sam2.1_hiera_s.yaml"
 kernel_size = 4
+
+cache_path = "C:\\ProgramData\\aviutl2\\Plugin\\ARB\\Python\\Cache"
 
 import os
 import sys
@@ -19,21 +25,36 @@ import matplotlib.pyplot as plt
 import cv2
 import plot
 import shutil
+import requests
 
 args = sys.argv[1:]
-if len(args) == 0:
-    raise NotImplementedError("Please modify the parameters in the script directly.")
+if len(args) < 4:
+    raise NotImplementedError("引数が足りません")
 
-video_path = args[0]
-video_name = os.path.splitext(os.path.basename(video_path))[0]
-output_mask_path = os.path.join(os.path.dirname(video_path),video_name+"_mask.mp4")
-mask_folder = os.path.join(os.path.dirname(video_path), video_name+"_masks")
+original_video_path = args[0]
+original_video_name, original_video_ext = os.path.splitext(os.path.basename(original_video_path))
+input_video_path = os.path.join(cache_path,"input"+original_video_ext)
+output_mask_path = os.path.join(cache_path,"output_mask.mp4")
+original_mask_path = os.path.join(os.path.dirname(original_video_path),original_video_name+"_mask.mp4")
 scale = float(args[1])
 per_batch = int(args[2])
+model_name = args[3]
+
+print("入力動画: " + original_video_path)
+print("スケール: " + str(scale))
+print("分割フレーム数: " + str(per_batch))
+print("モデル名: " + model_name)
+
+if not model_name in model_cfg.keys():
+    raise ValueError("不正なモデル名です")
+    exit(1)
+
+model_filename = model_name + ".pt"
+model_path = os.path.join("C:\\ProgramData\\aviutl2\\Plugin\\ARB\\Python\\", model_filename)
+model_url = 'https://dl.fbaipublicfiles.com/segment_anything_2/092824/' + model_filename
 
 
-def video_to_frames(video_path, start, per_batch, scale):
-    frame_folder = os.path.join(os.path.dirname(video_path), video_name+"_frames" + str(start))
+def video_to_frames(video_path, frame_folder, start, per_batch, scale):
     os.makedirs(frame_folder, exist_ok=True)
 
     cap = cv2.VideoCapture(video_path)
@@ -51,9 +72,15 @@ def video_to_frames(video_path, start, per_batch, scale):
 
         frame_id+=1
     cap.release()
-    return frame_folder
-def main():
 
+
+def main():
+    print("キャッシュフォルダを初期化中...")
+    if os.path.isdir(cache_path):
+        shutil.rmtree(cache_path)
+    os.makedirs(cache_path)
+
+    shutil.copy(original_video_path, input_video_path)
     print("ライブラリを読み込み中...")
 
     import torch
@@ -69,10 +96,10 @@ def main():
     # cudaの場合の最適化設定
     if device.type == "cuda":
         torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
-
+    
     print("動画をフレームへ分割中...")
 
-    cap = cv2.VideoCapture(video_path)
+    cap = cv2.VideoCapture(input_video_path)
     frame_num = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = cap.get(cv2.CAP_PROP_FPS)
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -85,21 +112,26 @@ def main():
     fourcc = cv2.VideoWriter_fourcc(*'mp4v') 
     writer = cv2.VideoWriter(output_mask_path, fourcc, fps, (frame_width, frame_height))
 
+    print("モデルをロード中")
+
+    if not os.path.isfile(model_path):
+
+        urlData = requests.get(model_url).content
+        with open(model_path ,mode='wb') as f:
+            f.write(urlData)
+
+    predictor = build_sam2_video_predictor(model_cfg[model_name], model_path, device=device)
+
     for i, start_frame_idx in enumerate(range(0, frame_num, per_batch)):
-        frame_folder = video_to_frames(video_path, start_frame_idx, per_batch, scale)
+        frame_folder = os.path.join(cache_path, "frames" + str(start_frame_idx))
+        video_to_frames(input_video_path, frame_folder, start_frame_idx, per_batch, scale)
 
         print("フレーム読み込み中...")
 
-        frame_names = [
-            p for p in os.listdir(frame_folder)
-        ]
-        frame_names.sort(key=lambda p: int(os.path.splitext(p)[0]))
-
-        start_frame = frame_names[0]
+        start_frame_path = os.path.join(frame_folder, "00000.jpg")
 
         torch.set_grad_enabled(False)
 
-        predictor = build_sam2_video_predictor(model_cfg, sam2_checkpoint, device=device)
         inference_state = predictor.init_state(video_path=frame_folder)
         predictor.reset_state(inference_state)
 
@@ -107,15 +139,15 @@ def main():
 
         ok = False
 
-        points = np.empty((0,3))
+        plot_points = np.empty((0,3))
 
         while(ok==False):
-            points = plot.plotter(os.path.join(frame_folder,start_frame), points)
+            plot_points = plot.plotter(start_frame_path, plot_points)
 
             prompts = [
                 [
-                    np.array(points[:,0:2],dtype=np.float32),
-                    np.array(points[:,2],np.int32)
+                    np.array(plot_points[:,0:2],dtype=np.float32),
+                    np.array(plot_points[:,2],np.int32)
                 ]
             ]
             for ann_obj_id, [points,labels] in enumerate(prompts):
@@ -127,7 +159,7 @@ def main():
                     labels=labels,
                 )
 
-            ok = plot.previewer(os.path.join(frame_folder,start_frame), out_mask_logits, out_obj_ids, points, labels)
+            ok = plot.previewer(start_frame_path, out_mask_logits, out_obj_ids, points, labels)
 
         print("マスクを生成中...")
 
@@ -157,10 +189,8 @@ def main():
                 torch.cuda.empty_cache()
 
         # 最初の画像の情報を取得する
-        img = cv2.imread(os.path.join(frame_folder,start_frame))
+        img = cv2.imread(start_frame_path)
         h, w, channels = img.shape[:3]
-
-        os.makedirs(mask_folder, exist_ok=True)
 
         for out_frame_idx in range(0, len(video_segments)):
 
@@ -180,12 +210,11 @@ def main():
                 # frame_result = cv2.bitwise_and(frame_result, cv2.bitwise_not(cv2_mask)) + cv2.bitwise_and(frame, cv2_mask)
 
             frame_result = cv2.resize(frame_result, (frame_width, frame_height))
-            filename = os.path.join(mask_folder, f"{start_frame_idx+out_frame_idx:05d}.jpg")
-            cv2.imwrite(filename, frame_result)
             writer.write(frame_result)
-
         shutil.rmtree(frame_folder)
     writer.release()
+
+    shutil.copy(output_mask_path, original_mask_path)
 
 if __name__ == "__main__":
     main()

@@ -39,9 +39,9 @@ namespace util{
         return result;
     }
 
-    wchar_t* str2wstr(char* w);
+    wchar_t* str2wstr(const char* w);
 
-    char* wstr2str(wchar_t* w);
+    char* wstr2str(const wchar_t* w);
     
     std::tuple<char**, int> splitStr(char* s, char p);
 
