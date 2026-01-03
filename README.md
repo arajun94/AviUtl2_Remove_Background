@@ -3,7 +3,7 @@ AIが動画の背景を取り除きます
 
 <video src="https://github.com/arajun94/AviUtl2_Remove_Background/raw/refs/heads/main/demo.mp4" controls="true"></video>
 
-GTX16以降を推奨
+GTX16以降を推奨だが、CPUでも動くはず。試していないが。
 
 ## インストール方法
 1. python3.13と最新版のGeforceドライバをインストール
