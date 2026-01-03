@@ -71,12 +71,20 @@ file(GLOB RQ_TXT
     "${CMAKE_SOURCE_DIR}/python/requirements.txt"
 )
 
+file(GLOB SCRIPT
+    "${CMAKE_SOURCE_DIR}/Script/*.anm2"
+)
+
 file(COPY ${PY_FILES}
     DESTINATION ${CMAKE_BINARY_DIR}/result/Plugin/ARB/Python
 )
 
 file(COPY ${RQ_TXT}
     DESTINATION ${CMAKE_BINARY_DIR}/result/Plugin/ARB/Python
+)
+
+file(COPY ${SCRIPT}
+    DESTINATION ${CMAKE_BINARY_DIR}/result/Script
 )
 
 

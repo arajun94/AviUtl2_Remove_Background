@@ -103,7 +103,7 @@ SCRIPT_MODULE_FUNCTION functions[] = {
 //	スクリプトモジュール構造体定義
 //---------------------------------------------------------------------
 SCRIPT_MODULE_TABLE script_module_table = {
-	L"arajunによるテスト",	// モジュールの情報
+	L"動画をマスクします",	// モジュールの情報
 	functions
 };
 

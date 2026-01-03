@@ -1,8 +1,9 @@
---label:加工
---information:動画で動画をマスク ver1.0
+--label:クリッピング
+--information:動画をマスクします
 --script:lua
 
 --file@path:動画ファイル
+--track@offset:オフセット,0,50000,0,0.001
 
 local func = obj.module("mask")
 
@@ -10,9 +11,8 @@ local base, bw, bh = obj.getpixeldata("object")
 
 obj.setoption("drawtarget","tmp")
 
--- 上のレイヤー（マスク動画）を読み込む
--- effect=true にしてエフェクト込みで取得
-obj.load("movie", path)
+-- オフセットを足した時点のフレームを取得
+obj.load("movie", path, offset + (obj.time % obj.totaltime))
 
 -- RGBAデータ取得
 local mask, mw, mh = obj.getpixeldata("object")

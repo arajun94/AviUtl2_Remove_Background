@@ -3,12 +3,12 @@
 #include <cstdlib>
 
 #define PROJECT_NAME L"Aviutl2 Remove Background Installer"
+#define ID_BUTTON_START 1001
+#define ID_BUTTON_END 1002
 
 HWND hwnd_install_window;
-
-LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
-    return DefWindowProc(hwnd, message, wparam, lparam);
-}
+HWND hwnd_label_text;
+HWND hwnd_button;
 
 BOOL cmd(PCWSTR c){
     PWSTR command = (PWSTR)malloc(sizeof(c)*(wcslen(c) + 1));
@@ -58,47 +58,7 @@ BOOL cmd(PCWSTR c){
     return 1;
 }
 
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow){
-    WNDCLASSEXW wcex = {};
-	wcex.cbSize = sizeof(WNDCLASSEX);
-	wcex.lpszClassName = PROJECT_NAME;
-	wcex.lpfnWndProc = wnd_proc;
-	wcex.hInstance = hInstance;
-	wcex.hbrBackground = (HBRUSH)(COLOR_MENU + 1);
-	wcex.hCursor = LoadCursor(NULL, IDC_ARROW);
-	wcex.style         = CS_HREDRAW | CS_VREDRAW;
-	wcex.cbClsExtra    = 0;
-	wcex.cbWndExtra    = 0;
-	wcex.hIcon         = NULL;
-	wcex.lpszMenuName  = NULL;
-	if (!RegisterClassEx(&wcex)) {
-		return 0;
-	}
-
-    hwnd_install_window = CreateWindowEx(
-		0,
-		PROJECT_NAME,
-		PROJECT_NAME,
-		WS_OVERLAPPEDWINDOW,
-		CW_USEDEFAULT, CW_USEDEFAULT, 300, 200,
-		nullptr,
-		nullptr,
-		GetModuleHandle(0),
-		nullptr);
-
-    HWND hwnd_label_text = CreateWindowEx(
-		0,
-		L"STATIC",
-		L"",
-		WS_VISIBLE | WS_CHILD,
-		10,10,280,100,
-		hwnd_install_window,
-		nullptr,
-		GetModuleHandle(0),
-		nullptr);
-
-    ShowWindow(hwnd_install_window, nCmdShow);
-
+BOOL install(){
     SetWindowText(hwnd_label_text, L"ファイルをコピー中");
 
     if(!cmd(L"xcopy /e /y .\\Plugin C:\\ProgramData\\aviutl2\\Plugin")){
@@ -142,7 +102,100 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         }
     }
     SetWindowText(hwnd_label_text, L"完了");
+    return 1;
+}
 
-    MessageBox(hwnd_install_window, L"インストール完了", PROJECT_NAME, MB_OK);
+LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+    static BOOL started = 0;
+    switch (message) {
+        case WM_COMMAND:{
+			switch (LOWORD(wparam)) {
+				case ID_BUTTON_START: {
+                    if(!started){
+                        started = 1;
+                        EnableWindow(hwnd_button, FALSE); 
+                        if(install()){
+                        }else{
+                            SetWindowText(hwnd_label_text, L"インストール失敗");
+                        }
+                        SetWindowText(hwnd_button, L"終了");
+                        EnableWindow(hwnd_button, TRUE);
+                        return 0;
+                    }else{
+                        DestroyWindow(hwnd);
+                        return 0;
+                    }
+                    break;
+                }
+            }
+            break;
+        }
+        case WM_DESTROY:
+            PostQuitMessage(0);   // ← ここで終了通知
+            return 0;
+        break;
+    }
+    return DefWindowProc(hwnd, message, wparam, lparam);
+}
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow){
+    WNDCLASSEXW wcex = {};
+	wcex.cbSize = sizeof(WNDCLASSEX);
+	wcex.lpszClassName = PROJECT_NAME;
+	wcex.lpfnWndProc = wnd_proc;
+	wcex.hInstance = hInstance;
+	wcex.hbrBackground = (HBRUSH)(COLOR_MENU + 1);
+	wcex.hCursor = LoadCursor(NULL, IDC_ARROW);
+	wcex.style         = CS_HREDRAW | CS_VREDRAW;
+	wcex.cbClsExtra    = 0;
+	wcex.cbWndExtra    = 0;
+	wcex.hIcon         = NULL;
+	wcex.lpszMenuName  = NULL;
+	if (!RegisterClassEx(&wcex)) {
+		return 0;
+	}
+
+    hwnd_install_window = CreateWindowEx(
+		0,
+		PROJECT_NAME,
+		PROJECT_NAME,
+		WS_OVERLAPPEDWINDOW,
+		CW_USEDEFAULT, CW_USEDEFAULT, 300, 200,
+		nullptr,
+		nullptr,
+		GetModuleHandle(0),
+		nullptr);
+
+    ShowWindow(hwnd_install_window, nCmdShow);
+
+    hwnd_label_text = CreateWindowEx(
+		0,
+		L"STATIC",
+		L"AviUtl2 Remove Background\nをインストールします",
+		WS_VISIBLE | WS_CHILD,
+		10,10,280,100,
+		hwnd_install_window,
+		nullptr,
+		GetModuleHandle(0),
+		nullptr);
+
+    hwnd_button = CreateWindowEx(
+		0,
+		L"BUTTON",
+		L"インストール",
+		WS_VISIBLE | WS_CHILD,
+		90,100,100,40,
+		hwnd_install_window,
+		(HMENU)ID_BUTTON_START,
+		GetModuleHandle(0),
+		nullptr
+    );
+
+    MSG msg;
+    while (GetMessage(&msg, NULL, 0, 0))
+    {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
     return 0;
 }
