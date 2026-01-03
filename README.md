@@ -1,7 +1,7 @@
 ## AviUtl2 Remove Background
 AIが動画の背景を取り除きます
 
-<video src="demo.mp4" controls="true"></video>
+<video src="https://github.com/arajun94/AviUtl2_Remove_Background/raw/refs/heads/main/demo.mp4" controls="true"></video>
 
 GTX16以降を推奨
 
