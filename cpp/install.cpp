@@ -1,6 +1,7 @@
 #include <Windows.h>
 #include <Shlwapi.h>
 #include <cstdlib>
+#include <cuda_runtime.h>
 
 #define PROJECT_NAME L"Aviutl2 Remove Background Installer"
 #define ID_BUTTON_START 1001
@@ -9,6 +10,12 @@
 HWND hwnd_install_window;
 HWND hwnd_label_text;
 HWND hwnd_button;
+
+bool hasCudaDevice() {
+    int deviceCount = 0;
+    cudaError_t err = cudaGetDeviceCount(&deviceCount);
+    return (err == cudaSuccess && deviceCount > 0);
+}
 
 BOOL cmd(PCWSTR c){
     PWSTR command = (PWSTR)malloc(sizeof(c)*(wcslen(c) + 1));
@@ -91,14 +98,20 @@ BOOL install(){
 
         SetWindowText(hwnd_label_text, L"ライブラリをインストール中（数分かかります）");
 
-        if(!cmd(L".\\venv\\Scripts\\pip.exe install torch==2.9.1+cu130 torchvision==0.24.1+cu130 --index-url https://download.pytorch.org/whl/cu130")){
-            MessageBox(hwnd_install_window, L"Pytorchのインストールに失敗", L"エラー", MB_OK);
-            return 0;
-        }
-
-        if(!cmd(L".\\venv\\Scripts\\pip.exe install -r .\\requirements.txt")){
-            MessageBox(hwnd_install_window, L"requirements.txtのインストールに失敗", L"エラー", MB_OK);
-            return 0;
+        if (hasCudaDevice()) {
+            if(!cmd(L".\\venv\\Scripts\\pip.exe install torch==2.9.1+cu130 torchvision==0.24.1+cu130 --index-url https://download.pytorch.org/whl/cu130")){
+                MessageBox(hwnd_install_window, L"Pytorchのインストールに失敗", L"エラー", MB_OK);
+                return 0;
+            }
+            if(!cmd(L".\\venv\\Scripts\\pip.exe install -r .\\requirements.txt")){
+                MessageBox(hwnd_install_window, L"requirements.txtのインストールに失敗", L"エラー", MB_OK);
+                return 0;
+            }
+        }else{
+            if(!cmd(L".\\venv\\Scripts\\pip.exe install -r .\\requirements_cpu.txt")){
+                MessageBox(hwnd_install_window, L"requirements_cpu.txtのインストールに失敗", L"エラー", MB_OK);
+                return 0;
+            }
         }
     }
     SetWindowText(hwnd_label_text, L"完了");

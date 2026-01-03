@@ -16,6 +16,7 @@ include_directories(${CMAKE_SOURCE_DIR}/aviutl2_sdk)
 
 find_package(Python REQUIRED COMPONENTS Interpreter Development)
 target_include_directories(window PRIVATE ${Python3_INCLUDE_DIRS})
+find_package(CUDAToolkit REQUIRED)
 
 target_compile_definitions(
     window PRIVATE
@@ -92,3 +93,4 @@ target_link_libraries(window PRIVATE util)
 target_link_libraries(window PRIVATE shlwapi)
 target_link_libraries(test PRIVATE util)
 target_link_libraries(installer PRIVATE shlwapi)
+target_link_libraries(installer PRIVATE CUDA::cudart)
