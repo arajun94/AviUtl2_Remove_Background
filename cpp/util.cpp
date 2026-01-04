@@ -105,13 +105,18 @@ namespace util{
         
         if(len==1)return p;
         
-        char* result = "";
+        char* result = (char*)malloc(sizeof(char*));
+        result[0] = '\0';
+        char* tmp;
         int i;
         for(i=0;i<len-1;i++){
-            result = combineStr(result, split[i]);
+            tmp = combineStr(result, split[i]);
+            free(result);
+            result = tmp;
         }
         std::cout << len << std::endl;
-        result = combineStr(result, d, ".", split[i]);
-        return result;
+        tmp = combineStr(result, d, ".", split[i]);
+        free(result);
+        return tmp;
     }
 }

@@ -14,7 +14,7 @@ namespace util{
 
         ((total_len += strlen(args)), ...);
 
-        char* result = new char[total_len];
+        char* result = (char*)malloc(sizeof(char)*total_len);
         result[0] = L'\0';
 
         char* cursor = result;
@@ -30,7 +30,7 @@ namespace util{
 
         ((total_len += wcslen(args)), ...);
 
-        wchar_t* result = new wchar_t[total_len];
+        wchar_t* result = (wchar_t*)malloc(sizeof(wchar_t)*total_len);
         result[0] = L'\0';
 
         wchar_t* cursor = result;

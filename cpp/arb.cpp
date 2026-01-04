@@ -91,14 +91,16 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 						MessageBoxEx(hwnd, L"動画オブジェクト取得失敗", L"エラー", 0, 0);
 						break;
 					}
-					if(!PathFileExists(util::str2wstr(video_data->path))){
+					wchar_t* tmp_w = util::str2wstr(video_data->path);
+					if(!PathFileExists(tmp_w)){
 						MessageBoxEx(hwnd, L"動画のパスが不正です", L"エラー", 0, 0);
 						break;
 					}
 
 					SetWindowText(
-						hwnd_edit_file_path, util::str2wstr(video_data->path)
+						hwnd_edit_file_path, tmp_w
 					);
+					free(tmp_w);
 
 					return 0;
 					break;
@@ -126,8 +128,8 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 
 					//エイリアスデータからstart,endを取得
 					PSTR* split;
-					WORD _;
-					std::tie(split, _) = util::splitStr(video_data->playback_position, ',');
+					WORD len;
+					std::tie(split, len) = util::splitStr(video_data->playback_position, ',');
 					PSTR end_c;
 					FLOAT start = strtod(split[0], &end_c);
 					if (errno != 0 || *end_c != '\0') {
@@ -139,35 +141,48 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 					}
 
 					//モデルネーム取得
-					PCSTR model_name = util::wstr2str(strItem[SendMessage(hwnd_combo_model_name , CB_GETCURSEL , 0 , 0)]);
+					PSTR model_name = util::wstr2str(strItem[SendMessage(hwnd_combo_model_name , CB_GETCURSEL , 0 , 0)]);
 
-					PSTR mask = util::decorPath(util::wstr2str(video), util::combineStr("_mask_", split[0], "_", split[1]));
+					char* tmp = util::combineStr("_mask_", split[0], "_", split[1]);
+					char* tmp2 = util::wstr2str(video);
+					PSTR mask = util::decorPath(tmp2, tmp);
+					free(tmp);
+					free(tmp2);
 
 					WORD i=0;
 					PSTR decor;
-					while(PathFileExists(util::str2wstr(mask))){
+					wchar_t* tmp_w = util::str2wstr(mask);
+					while(PathFileExists(tmp_w)){
 						decor = (PSTR)malloc(sprintf(nullptr, "_mask_%s_%s_%d",split[0], split[1], i)*sizeof(CHAR));
 						sprintf(decor, "_%d", i);
+						free(mask);
 						mask = util::decorPath(mask, decor);
 						free(decor);
+						free(tmp_w);
+						tmp_w = util::str2wstr(mask);
 					}
+					free(tmp_w);
 
 					//Python呼び出し
 					CHAR command[1024];
-					sprintf(command, "%s %s \"%s\" %f %.3f %.3f %s", venv, py, util::wstr2str(video), scale, start, end, model_name);
+					tmp = util::wstr2str(video);
+					sprintf(command, "%s %s \"%s\" %f %.3f %.3f %s", venv, py, tmp, scale, start, end, model_name);
 					if(system(command)!=0){
 						break;
 					}
+					free(tmp);
 
 					//コールバック関数にvideo_dataを渡し、コールバック関数内で動画オブジェクトのaliasを取得し、sprintfで書き換え、動画オブジェクトに書き込む
 					
 					//エイリアス作成
-					strncpy(video_data->alias_data, util::combineStr(video_data->alias_data, 
+					tmp = util::combineStr(video_data->alias_data, 
 u8R"(
 [Object.2]
 effect.name=動画マスク
 動画ファイル=)", mask, u8R"(
-オフセット=)", split[0]), 1024);
+オフセット=)", split[0]);
+					strncpy(video_data->alias_data, tmp, 1024);
+					free(tmp);
 					//strncpy(video_data->path, mask, MAX_PATH);
 					edit_handle->call_edit_section_param(video_data, [](void* param, EDIT_SECTION* edit) {
 						typedef struct{
@@ -189,6 +204,16 @@ effect.name=動画マスク
 							logger->warn(logger, L"create alias failed");
 						}
 					});
+					
+					free(mask);
+					free(model_name);
+					free(video);
+					for(WORD i=0;i<len;i++){
+						free(split[i]);
+					}
+					free(split);
+					free(video_data->object);
+					free(video_data);
 					return 0;
 					break;
 				}
@@ -203,7 +228,7 @@ effect.name=動画マスク
 //---------------------------------------------------------------------
 EXTERN_C __declspec(dllexport) void RegisterPlugin(HOST_APP_TABLE* host) {
 	// プラグインの情報を設定
-	host->set_plugin_information(L"Sample Window Client version 2.00 By ＫＥＮくん");
+	host->set_plugin_information(L"AviUtl2 Remove Background");
 
 	// 自身のウィンドウを作成
 	WNDCLASSEXW wcex = {};
