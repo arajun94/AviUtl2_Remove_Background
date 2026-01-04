@@ -54,6 +54,8 @@ EXTERN_C __declspec(dllexport) bool InitializePlugin(DWORD version) {
 //	プラグインDLL解放関数 (未定義なら呼ばれません)
 //---------------------------------------------------------------------
 EXTERN_C __declspec(dllexport) void UninitializePlugin() {
+	free(video_data->object);
+	free(video_data);
 }
 
 
@@ -66,9 +68,6 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 			switch (LOWORD(wparam)) {
 				case ID_BUTTON_FILE_OPEN: {
 					//エイリアスデータ取得
-					video_data = (VideoData*)malloc(sizeof(VideoData));
-					memset(video_data, 0, sizeof(VideoData));
-					video_data->object = (OBJECT_HANDLE*)malloc(sizeof(OBJECT_HANDLE));
 					edit_handle->call_edit_section_param(video_data, [](void* param, EDIT_SECTION* edit) {
 						typedef struct{
 							CHAR playback_position[32];
@@ -96,10 +95,12 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 						MessageBoxEx(hwnd, L"動画のパスが不正です", L"エラー", 0, 0);
 						break;
 					}
-
+					wchar_t* tmp2_w = util::str2wstr(video_data->playback_position);
+					tmp_w = util::combineWStr(tmp_w, L"   ", tmp2_w);
 					SetWindowText(
 						hwnd_edit_file_path, tmp_w
 					);
+					free(tmp2_w);
 					free(tmp_w);
 
 					return 0;
@@ -108,10 +109,9 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 				case ID_BUTTON_EXEC: {
 					PSTR venv = "C:\\ProgramData\\aviutl2\\Plugin\\ARB\\Python\\venv\\Scripts\\python.exe";
 					PSTR py = "C:\\ProgramData\\aviutl2\\Plugin\\ARB\\Python\\sam2_video.py";
-					PWSTR video = util::str2wstr(video_data->path);
 
-					if(!PathFileExists(video)){
-						MessageBoxEx(hwnd, L"動画のパスが不正です", L"エラー", 0, 0);
+					if(video_data->playback_position[0]=='\0'){
+						MessageBoxEx(hwnd, L"動画オブジェクトを選択して下さい", L"エラー", 0, 0);
 						break;
 					}
 
@@ -144,10 +144,8 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 					PSTR model_name = util::wstr2str(strItem[SendMessage(hwnd_combo_model_name , CB_GETCURSEL , 0 , 0)]);
 
 					char* tmp = util::combineStr("_mask_", split[0], "_", split[1]);
-					char* tmp2 = util::wstr2str(video);
-					PSTR mask = util::decorPath(tmp2, tmp);
+					PSTR mask = util::decorPath(video_data->path, tmp);
 					free(tmp);
-					free(tmp2);
 
 					WORD i=0;
 					PSTR decor;
@@ -155,8 +153,10 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 					while(PathFileExists(tmp_w)){
 						decor = (PSTR)malloc(sprintf(nullptr, "_mask_%s_%s_%d",split[0], split[1], i)*sizeof(CHAR));
 						sprintf(decor, "_%d", i);
+						tmp = mask;
 						free(mask);
-						mask = util::decorPath(mask, decor);
+						mask = util::decorPath(tmp, decor);
+						free(tmp);
 						free(decor);
 						free(tmp_w);
 						tmp_w = util::str2wstr(mask);
@@ -165,15 +165,11 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 
 					//Python呼び出し
 					CHAR command[1024];
-					tmp = util::wstr2str(video);
-					sprintf(command, "%s %s \"%s\" %f %.3f %.3f %s", venv, py, tmp, scale, start, end, model_name);
+					sprintf(command, "%s %s \"%s\" %f %.3f %.3f %s", venv, py, video_data->path, scale, start, end, model_name);
 					if(system(command)!=0){
 						break;
 					}
-					free(tmp);
 
-					//コールバック関数にvideo_dataを渡し、コールバック関数内で動画オブジェクトのaliasを取得し、sprintfで書き換え、動画オブジェクトに書き込む
-					
 					//エイリアス作成
 					tmp = util::combineStr(video_data->alias_data, 
 u8R"(
@@ -194,7 +190,6 @@ effect.name=動画マスク
 						VideoData* video_data = (VideoData*)param;
 						// 古いオブジェクトを削除
 						edit->delete_object(*video_data->object);
-						logger->log(logger, L"delete object");
 						// エイリアスデータからオブジェクトを作成
 						OBJECT_HANDLE new_object = edit->create_object_from_alias(video_data->alias_data, edit->info->layer, edit->info->frame, 10);
 						if (new_object) {
@@ -204,16 +199,18 @@ effect.name=動画マスク
 							logger->warn(logger, L"create alias failed");
 						}
 					});
+
+					SetWindowText(
+						hwnd_edit_file_path, L"（トラックバーから動画オブジェクトを選択し、選択ボタンを押して下さい）"
+					);
 					
 					free(mask);
 					free(model_name);
-					free(video);
 					for(WORD i=0;i<len;i++){
 						free(split[i]);
 					}
 					free(split);
-					free(video_data->object);
-					free(video_data);
+					video_data->playback_position[0]='\0';
 					return 0;
 					break;
 				}
@@ -366,5 +363,11 @@ EXTERN_C __declspec(dllexport) void RegisterPlugin(HOST_APP_TABLE* host) {
 
 	// 編集ハンドルを作成
 	edit_handle = host->create_edit_handle();
+
+	video_data = (VideoData*)malloc(sizeof(VideoData));
+	memset(video_data, 0, sizeof(VideoData));
+	video_data->object = (OBJECT_HANDLE*)malloc(sizeof(OBJECT_HANDLE));
+	memset(video_data->object, 0, sizeof(OBJECT_HANDLE));
+	video_data->playback_position[0]='\0';
 }
 

@@ -1,30 +1,32 @@
 add_library(util STATIC util.cpp)
-add_library(window SHARED window.cpp)
+add_library(arb SHARED arb.cpp)
 add_library(mask SHARED mask.cpp)
 add_executable(test test.cpp)
 add_executable(installer WIN32 install.cpp)
 
 if (MSVC)
     target_compile_options(util PRIVATE /utf-8)
-    target_compile_options(window PRIVATE /utf-8)
+    target_compile_options(arb PRIVATE /utf-8)
     target_compile_options(mask PRIVATE /utf-8)
     target_compile_options(test PRIVATE /utf-8)
     target_compile_options(installer PRIVATE /utf-8)
 endif()
 
+# target_compile_definitions(installer PRIVATE USE_CUDA)
+
 include_directories(${CMAKE_SOURCE_DIR}/aviutl2_sdk)
 
 find_package(Python REQUIRED COMPONENTS Interpreter Development)
-target_include_directories(window PRIVATE ${Python3_INCLUDE_DIRS})
+target_include_directories(arb PRIVATE ${Python3_INCLUDE_DIRS})
 find_package(CUDAToolkit REQUIRED)
 
 target_compile_definitions(
-    window PRIVATE
+    arb PRIVATE
     UNICODE
     _UNICODE
 )
 
-set_target_properties(window PROPERTIES
+set_target_properties(arb PROPERTIES
     PREFIX ""
     SUFFIX ".aux2"
 )
@@ -52,7 +54,7 @@ target_compile_definitions(
     _UNICODE
 )
 
-set_target_properties(window PROPERTIES
+set_target_properties(arb PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/result/Plugin
 )
 
@@ -89,8 +91,8 @@ file(COPY ${SCRIPT}
 )
 
 
-target_link_libraries(window PRIVATE util)
-target_link_libraries(window PRIVATE shlwapi)
+target_link_libraries(arb PRIVATE util)
+target_link_libraries(arb PRIVATE shlwapi)
 target_link_libraries(test PRIVATE util)
 target_link_libraries(installer PRIVATE shlwapi)
 target_link_libraries(installer PRIVATE CUDA::cudart)
