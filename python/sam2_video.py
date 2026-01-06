@@ -16,8 +16,6 @@ model_cfg = {
 
 kernel_size = 4
 
-cache_path = "C:\\ProgramData\\aviutl2\\Plugin\\ARB\\Python\\Cache"
-
 import os
 import sys
 import numpy as np
@@ -26,6 +24,9 @@ import cv2
 import plot
 import shutil
 import requests
+
+base_dir = os.path.dirname(os.path.abspath(__file__)) # .../Python
+cache_path = os.path.join(base_dir, "Cache")
 
 args = sys.argv[1:]
 if len(args) < 5:
@@ -58,7 +59,7 @@ if not model_name in model_cfg.keys():
     exit(1)
 
 model_filename = model_name + ".pt"
-model_path = os.path.join("C:\\ProgramData\\aviutl2\\Plugin\\ARB\\Python\\", model_filename)
+model_path = os.path.join(base_dir, model_filename)
 model_url = 'https://dl.fbaipublicfiles.com/segment_anything_2/092824/' + model_filename
 
 

@@ -15,11 +15,15 @@
 #define ID_EDIT_SCALE 1002
 #define ID_EDIT_FILE_PATH 1004
 #define ID_BUTTON_EXEC 1005
+
 EDIT_HANDLE* edit_handle;
 LOG_HANDLE* logger;
+
 HWND hwnd_edit_file_path;
 HWND hwnd_edit_scale;
 HWND hwnd_combo_model_name;
+
+WCHAR plugin_dir[MAX_PATH];
 
 PCWSTR strItem[] = {
     L"sam2.1_hiera_tiny",
@@ -57,6 +61,9 @@ EXTERN_C __declspec(dllexport) void UninitializePlugin() {
 	free(video_data->object);
 	free(video_data);
 }
+
+//プラグインフォルダを取得するための嘘の関数
+void dummy(){}
 
 
 //---------------------------------------------------------------------
@@ -106,9 +113,14 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 					return 0;
 					break;
 				}
+
+
+
+
 				case ID_BUTTON_EXEC: {
-					PSTR venv = "C:\\ProgramData\\aviutl2\\Plugin\\ARB\\Python\\venv\\Scripts\\python.exe";
-					PSTR py = "C:\\ProgramData\\aviutl2\\Plugin\\ARB\\Python\\sam2_video.py";
+					PSTR plugin_dir_a = util::wstr2str(plugin_dir);
+					PSTR venv = util::combineStr(plugin_dir_a, L"\\ARB\\Python\\venv\\Scripts\\python.exe");
+					PSTR py = util::combineStr(plugin_dir_a, L"\\ARB\\Python\\sam2_video.py");
 
 					if(video_data->playback_position[0]=='\0'){
 						MessageBoxEx(hwnd, L"動画オブジェクトを選択して下さい", L"エラー", 0, 0);
@@ -369,5 +381,16 @@ EXTERN_C __declspec(dllexport) void RegisterPlugin(HOST_APP_TABLE* host) {
 	video_data->object = (OBJECT_HANDLE*)malloc(sizeof(OBJECT_HANDLE));
 	memset(video_data->object, 0, sizeof(OBJECT_HANDLE));
 	video_data->playback_position[0]='\0';
+
+	//プラグインフォルダ取得
+	HMODULE hModule;
+	GetModuleHandleEx(
+		GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+		(LPCTSTR)&dummy,
+		&hModule
+	);
+	GetModuleFileName(hModule, plugin_dir, MAX_PATH);
+
+	PathRemoveFileSpec(plugin_dir);
 }
 
