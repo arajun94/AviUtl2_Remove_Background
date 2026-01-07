@@ -4,6 +4,7 @@
 
 --file@path:動画ファイル
 --track@offset:オフセット,0,50000,0,0.001
+--check@invert:反転,false
 
 local func = obj.module("mask")
 
@@ -17,7 +18,7 @@ obj.load("movie", path, offset + (obj.time % obj.totaltime))
 -- RGBAデータ取得
 local mask, mw, mh = obj.getpixeldata("object")
 
-func.mask(base, mask, bw, bh)
+func.mask(base, mask, bw, bh, invert)
 
 -- 結果を書き戻す
 obj.putpixeldata("object", base, bw, bh, "rgba")

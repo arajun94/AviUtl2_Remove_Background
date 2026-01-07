@@ -23,7 +23,7 @@ EXTERN_C __declspec(dllexport) void UninitializePlugin() {
 void mask(SCRIPT_MODULE_PARAM* param) {
 	// 引数を取得
 	auto n = param->get_param_num();
-	if (n != 4) {
+	if (n != 5) {
 		param->set_error(u8"引数の数が正しくありません");
 		return;
 	}
@@ -31,6 +31,7 @@ void mask(SCRIPT_MODULE_PARAM* param) {
     auto mask = (PIXEL_RGBA*)param->get_param_data(1);
 	auto w = param->get_param_int(2);
 	auto h = param->get_param_int(3);
+	auto invert = param->get_param_boolean(4);
 	if (!base || !mask || w <= 0 || h <= 0) {
 		param->set_error(u8"引数の値が正しくありません");
 		return;
@@ -39,7 +40,7 @@ void mask(SCRIPT_MODULE_PARAM* param) {
     //マスク
 	for (int y = 0; y < h; y++) {
 		for (int x = 0; x < w; x++) {
-			base->a = mask->r;
+			base->a = invert? ~mask->r : mask->r;
 			base++;
             mask++;
 		}
@@ -58,7 +59,7 @@ SCRIPT_MODULE_FUNCTION functions[] = {
 //	スクリプトモジュール構造体定義
 //---------------------------------------------------------------------
 SCRIPT_MODULE_TABLE script_module_table = {
-	L"動画をマスクします",	// モジュールの情報
+	L"動画マスク",	// モジュールの情報
 	functions
 };
 
