@@ -97,6 +97,7 @@ BOOL cmd(PCWSTR c){
 
     DWORD exitCode = 0;
 
+    //エラー
     if(!GetExitCodeProcess(pi.hProcess, &exitCode) || exitCode != 0){
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
@@ -127,38 +128,10 @@ BOOL install(){
     PWSTR plugin_dir = plugin_copy_cmd+21;
     PWSTR script_dir = script_copy_cmd+21;
 
-
     
-    if(!PathFileExists(plugin_dir)){
-        switch (MessageBox(hwnd_install_window, L"Pluginフォルダが見つかりません。新たに作成しますか？", plugin_dir, MB_OKCANCEL)){
-            case IDOK:
-                WCHAR make_plugin_dir_cmd[MAX_PATH+10];
-                wsprintf(make_plugin_dir_cmd, L"cmd.exe /C mkdir %s", plugin_dir);
-                if(!cmd(make_plugin_dir_cmd)){
-                    MessageBox(hwnd_install_window, L"ファイルコピーに失敗", make_plugin_dir_cmd, MB_OK);
-                    return 0;
-                }
-                break;
-            case IDNO:
-                return 0;
-                break;
-        }
-    }
-
-    if(!PathFileExists(script_dir)){
-        switch (MessageBox(hwnd_install_window, L"Scriptフォルダが見つかりません。新たに作成しますか？", script_dir, MB_OKCANCEL)){
-            case IDOK:
-                WCHAR make_script_dir_cmd[MAX_PATH+10];
-                wsprintf(make_script_dir_cmd, L"cmd.exe /C mkdir %s", script_dir);
-                if(!cmd(make_script_dir_cmd)){
-                    MessageBox(hwnd_install_window, L"ファイルコピーに失敗", make_script_dir_cmd, MB_OK);
-                    return 0;
-                }
-                break;
-            case IDNO:
-                return 0;
-                break;
-        }
+    if(!PathFileExists(plugin_dir) || !PathFileExists(script_dir)){
+        MessageBox(hwnd_install_window, L"Pluginフォルダ、Scriptフォルダを含むフォルダを指定して下さい。", script_dir, MB_OKCANCEL);
+        return 0;
     }
 
 
@@ -235,6 +208,7 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 
                         if(!PathFileExists(install_path)){
                             MessageBox(hwnd_install_window, L"存在しないパス", L"エラー", MB_OK);
+                            return 0;
                         }
 
                         SetWindowText(hwnd_edit_install_path, install_path);
@@ -253,9 +227,11 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
                         GetWindowText(hwnd_edit_install_path, install_path, MAX_PATH);
                         if(!PathFileExists(install_path)){
                             MessageBox(hwnd_install_window, L"存在しないパス", L"エラー", MB_OK);
+                            return 0;
                         }
                         started = 1;
-                        EnableWindow(hwnd_button_start, FALSE); 
+                        EnableWindow(hwnd_button_start, FALSE);
+                        EnableWindow(hwnd_button_set_install_path, FALSE); 
                         if(install()){
                             SetWindowText(hwnd_label, L"インストール完了");
                         }else{
@@ -330,7 +306,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     hwnd_label2 = CreateWindowEx(
 		0,
 		L"STATIC",
-		L"インストール先",
+		L"インストール先（PluginフォルダやScriptフォルダを含むフォルダ）",
 		WS_VISIBLE | WS_CHILD | ES_CENTER,
 		10, 160, CLIENT_WIDTH-20, 30,
 		hwnd_install_window,
