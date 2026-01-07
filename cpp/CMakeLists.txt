@@ -4,15 +4,31 @@ add_library(mask SHARED mask.cpp)
 add_executable(test test.cpp)
 add_executable(installer WIN32 install.cpp)
 
+
+set(MANIFEST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/installer.manifest)
+
 if (MSVC)
     target_compile_options(util PRIVATE /utf-8)
     target_compile_options(arb PRIVATE /utf-8)
     target_compile_options(mask PRIVATE /utf-8)
     target_compile_options(test PRIVATE /utf-8)
     target_compile_options(installer PRIVATE /utf-8)
+
+    add_custom_command(
+        TARGET installer
+        POST_BUILD
+        COMMAND mt.exe
+            -nologo
+            -manifest ${MANIFEST_FILE}
+            -outputresource:$<TARGET_FILE:installer>\;1
+    )
 endif()
 
-# target_compile_definitions(installer PRIVATE USE_CUDA)
+# cuda版のtorchをインストールするかどうか
+target_compile_definitions(installer PRIVATE USE_CUDA)
+
+# インストール時に既にあるvenvを初期化するかどうか
+target_compile_definitions(installer PRIVATE DEBUG)
 
 include_directories(${CMAKE_SOURCE_DIR}/aviutl2_sdk)
 
@@ -74,8 +90,12 @@ file(GLOB RQ_TXT
     "${CMAKE_SOURCE_DIR}/python/requirements.txt"
 )
 
-file(GLOB SCRIPT
+file(GLOB SCRIPTS
     "${CMAKE_SOURCE_DIR}/Script/*.anm2"
+)
+
+file(COPY ${SCRIPTS}
+    DESTINATION ${CMAKE_BINARY_DIR}/result/Script
 )
 
 file(COPY ${PY_FILES}
@@ -84,10 +104,6 @@ file(COPY ${PY_FILES}
 
 file(COPY ${RQ_TXT}
     DESTINATION ${CMAKE_BINARY_DIR}/result/Plugin/ARB/Python
-)
-
-file(COPY ${SCRIPT}
-    DESTINATION ${CMAKE_BINARY_DIR}/result/Script
 )
 
 

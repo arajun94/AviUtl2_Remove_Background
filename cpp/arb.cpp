@@ -119,8 +119,8 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 
 				case ID_BUTTON_EXEC: {
 					PSTR plugin_dir_a = util::wstr2str(plugin_dir);
-					PSTR venv = util::combineStr(plugin_dir_a, L"\\ARB\\Python\\venv\\Scripts\\python.exe");
-					PSTR py = util::combineStr(plugin_dir_a, L"\\ARB\\Python\\sam2_video.py");
+					PSTR venv = util::combineStr(plugin_dir_a, "\\ARB\\Python\\venv\\Scripts\\python.exe");
+					PSTR py = util::combineStr(plugin_dir_a, "\\ARB\\Python\\sam2_video.py");
 
 					if(video_data->playback_position[0]=='\0'){
 						MessageBoxEx(hwnd, L"動画オブジェクトを選択して下さい", L"エラー", 0, 0);

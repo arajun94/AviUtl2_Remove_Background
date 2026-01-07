@@ -1,25 +1,72 @@
 #include <Windows.h>
 #include <Shlwapi.h>
 #include <cstdlib>
+#include <shobjidl.h>
+
 
 #define PROJECT_NAME L"Aviutl2 Remove Background Installer"
 #define ID_BUTTON_START 1001
-#define ID_BUTTON_END 1002
+#define ID_BUTTON_SET_INSTALL_PATH 1002
+
+#define CLIENT_WIDTH 640
+#define CLIENT_HEIGHT 360
 
 #ifdef USE_CUDA
-
 #define START_LABEL L"AviUtl2 Remove Background(CUDA)\nをインストールします"
-
 #else
-
 #define START_LABEL L"AviUtl2 Remove Background\nをインストールします"
-
 #endif
+
+#define DEFAULT_INSTALL_PATH L"C:\\ProgramData\\aviutl2"
 
 
 HWND hwnd_install_window;
-HWND hwnd_label_text;
-HWND hwnd_button;
+HWND hwnd_label;
+HWND hwnd_label2;
+HWND hwnd_button_start;
+HWND hwnd_edit_install_path;
+HWND hwnd_button_set_install_path;
+
+WCHAR install_path[MAX_PATH] = DEFAULT_INSTALL_PATH;
+
+bool SelectFolder(HWND hwnd, PWSTR outPath)
+{
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(hr)) return false;
+
+    IFileDialog* pDialog = nullptr;
+    hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr,
+                          CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pDialog));
+    if (FAILED(hr)) {
+        CoUninitialize();
+        return false;
+    }
+
+    DWORD options;
+    pDialog->GetOptions(&options);
+    pDialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+
+    hr = pDialog->Show(hwnd);
+    if (SUCCEEDED(hr)) {
+        IShellItem* pItem = nullptr;
+        if (SUCCEEDED(pDialog->GetResult(&pItem))) {
+            PWSTR path = nullptr;
+            if (SUCCEEDED(pItem->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
+                StrCpyW(outPath, path);
+                CoTaskMemFree(path);
+                pItem->Release();
+                pDialog->Release();
+                CoUninitialize();
+                return true;
+            }
+            pItem->Release();
+        }
+    }
+
+    pDialog->Release();
+    CoUninitialize();
+    return false;
+}
 
 BOOL cmd(PCWSTR c){
     PWSTR command = (PWSTR)malloc(sizeof(c)*(wcslen(c) + 1));
@@ -49,20 +96,16 @@ BOOL cmd(PCWSTR c){
     }
 
     DWORD exitCode = 0;
-    if(!GetExitCodeProcess(pi.hProcess, &exitCode)){
+
+    if(!GetExitCodeProcess(pi.hProcess, &exitCode) || exitCode != 0){
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
         free(command);
         return 0;
     }
 
-    if (exitCode != 0) {
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
-        free(command);
-        return 0;
-    }
 
+    //正常
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
     free(command);
@@ -70,46 +113,94 @@ BOOL cmd(PCWSTR c){
 }
 
 BOOL install(){
-    SetWindowText(hwnd_label_text, L"ファイルをコピー中");
+    SetWindowText(hwnd_label, L"ファイルをコピー中");
 
-    if(!cmd(L"xcopy /e /y .\\Plugin C:\\ProgramData\\aviutl2\\Plugin")){
+    WCHAR python_dir[MAX_PATH];
+    wsprintf(python_dir, L"%s\\Plugin\\ARB\\Python", install_path);
+
+    WCHAR plugin_copy_cmd[MAX_PATH+10];
+    wsprintf(plugin_copy_cmd, L"xcopy /e /y .\\Plugin %s\\Plugin", install_path);
+
+    WCHAR script_copy_cmd[MAX_PATH+10];
+    wsprintf(script_copy_cmd, L"xcopy /e /y .\\Script %s\\Script", install_path);
+
+    PWSTR plugin_dir = plugin_copy_cmd+21;
+    PWSTR script_dir = script_copy_cmd+21;
+
+
+    
+    if(!PathFileExists(plugin_dir)){
+        switch (MessageBox(hwnd_install_window, L"Pluginフォルダが見つかりません。新たに作成しますか？", plugin_dir, MB_OKCANCEL)){
+            case IDOK:
+                WCHAR make_plugin_dir_cmd[MAX_PATH+10];
+                wsprintf(make_plugin_dir_cmd, L"cmd.exe /C mkdir %s", plugin_dir);
+                if(!cmd(make_plugin_dir_cmd)){
+                    MessageBox(hwnd_install_window, L"ファイルコピーに失敗", make_plugin_dir_cmd, MB_OK);
+                    return 0;
+                }
+                break;
+            case IDNO:
+                return 0;
+                break;
+        }
+    }
+
+    if(!PathFileExists(script_dir)){
+        switch (MessageBox(hwnd_install_window, L"Scriptフォルダが見つかりません。新たに作成しますか？", script_dir, MB_OKCANCEL)){
+            case IDOK:
+                WCHAR make_script_dir_cmd[MAX_PATH+10];
+                wsprintf(make_script_dir_cmd, L"cmd.exe /C mkdir %s", script_dir);
+                if(!cmd(make_script_dir_cmd)){
+                    MessageBox(hwnd_install_window, L"ファイルコピーに失敗", make_script_dir_cmd, MB_OK);
+                    return 0;
+                }
+                break;
+            case IDNO:
+                return 0;
+                break;
+        }
+    }
+
+
+
+    if(!cmd(plugin_copy_cmd)){
         MessageBox(hwnd_install_window, L"ファイルコピーに失敗\nAviutl2を開いている場合は閉じて下さい", L"エラー", MB_OK);
         return 0;
     }
 
-    if(!cmd(L"xcopy /e /y .\\Script C:\\ProgramData\\aviutl2\\Script")){
+    if(!cmd(script_copy_cmd)){
         MessageBox(hwnd_install_window, L"ファイルコピーに失敗\nAviutl2を開いている場合は閉じて下さい", L"エラー", MB_OK);
         return 0;
     }
 
-    SetWindowText(hwnd_label_text, L"Python依存関係をインストール中");
+    SetWindowText(hwnd_label, L"Python依存関係をインストール中");
 
-    SetCurrentDirectory(L"C:\\ProgramData\\aviutl2\\Plugin\\ARB\\Python");
+    SetCurrentDirectory(python_dir);
 
-    if(PathFileExists(L"C:\\ProgramData\\aviutl2\\Plugin\\ARB\\Python\\venv")){
+    if(PathFileExists(L".\\venv")){
         #ifndef DEBUG
         
         SetWindowText(hwnd_label_text, L"既に存在するvenvフォルダを削除");
-        if(!cmd(L"cmd.exe /c rmdir /s /q C:\\ProgramData\\aviutl2\\Plugin\\ARB\\Python\\venv")){
+        if(!cmd(L"cmd.exe /c rmdir /s /q .\\venv")){
             MessageBox(hwnd_install_window, L"venvフォルダの削除に失敗", L"エラー", MB_OK);
             return 0;
         }
         
         #else 
 
-        SetWindowText(hwnd_label_text, L"完了");
+        SetWindowText(hwnd_label, L"完了");
         return 1;
-        
+
         #endif
     }
-    SetWindowText(hwnd_label_text, L"venvを作成中");
+    SetWindowText(hwnd_label, L"venvを作成中");
 
     if(!cmd(L"python.exe -m venv venv")){
         MessageBox(hwnd_install_window, L"venvの作成に失敗", L"エラー", MB_OK);
         return 0;
     }
 
-    SetWindowText(hwnd_label_text, L"ライブラリをインストール中（数分かかります）");
+    SetWindowText(hwnd_label, L"ライブラリをインストール中（数分かかります）");
 
     #ifdef USE_CUDA
         if(!cmd(L".\\venv\\Scripts\\pip.exe install torch==2.9.1+cu130 torchvision==0.24.1+cu130 --index-url https://download.pytorch.org/whl/cu130")){
@@ -126,28 +217,55 @@ BOOL install(){
             return 0;
         }
     #endif
-    SetWindowText(hwnd_label_text, L"完了");
     return 1;
 }
+
+
+
+
 
 LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
     static BOOL started = 0;
     switch (message) {
         case WM_COMMAND:{
 			switch (LOWORD(wparam)) {
+				case ID_BUTTON_SET_INSTALL_PATH: {
+
+                    if(SelectFolder(hwnd, install_path)){
+
+                        if(!PathFileExists(install_path)){
+                            MessageBox(hwnd_install_window, L"存在しないパス", L"エラー", MB_OK);
+                        }
+
+                        SetWindowText(hwnd_edit_install_path, install_path);
+                    }
+
+					return 0;
+					break;
+				}
+
+
+
+
 				case ID_BUTTON_START: {
                     if(!started){
-                        started = 1;
-                        EnableWindow(hwnd_button, FALSE); 
-                        if(install()){
-                        }else{
-                            SetWindowText(hwnd_label_text, L"インストール失敗");
+                        WCHAR install_path[MAX_PATH];
+                        GetWindowText(hwnd_edit_install_path, install_path, MAX_PATH);
+                        if(!PathFileExists(install_path)){
+                            MessageBox(hwnd_install_window, L"存在しないパス", L"エラー", MB_OK);
                         }
-                        SetWindowText(hwnd_button, L"終了");
-                        EnableWindow(hwnd_button, TRUE);
+                        started = 1;
+                        EnableWindow(hwnd_button_start, FALSE); 
+                        if(install()){
+                            SetWindowText(hwnd_label, L"インストール完了");
+                        }else{
+                            SetWindowText(hwnd_label, L"インストール失敗");
+                        }
+                        SetWindowText(hwnd_button_start, L"終了");
+                        EnableWindow(hwnd_button_start, TRUE);
                         return 0;
                     }else{
-                        DestroyWindow(hwnd);
+                        DestroyWindow(hwnd_install_window);
                         return 0;
                     }
                     break;
@@ -156,7 +274,7 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
             break;
         }
         case WM_DESTROY:
-            PostQuitMessage(0);   // ← ここで終了通知
+            PostQuitMessage(0);
             return 0;
         break;
     }
@@ -164,6 +282,11 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow){
+
+    RECT window_space {0, 0, CLIENT_WIDTH, CLIENT_HEIGHT};
+
+    AdjustWindowRectEx(&window_space, WS_OVERLAPPEDWINDOW, FALSE, 0);
+
     WNDCLASSEXW wcex = {};
 	wcex.cbSize = sizeof(WNDCLASSEX);
 	wcex.lpszClassName = PROJECT_NAME;
@@ -185,7 +308,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		PROJECT_NAME,
 		PROJECT_NAME,
 		WS_OVERLAPPEDWINDOW,
-		CW_USEDEFAULT, CW_USEDEFAULT, 300, 200,
+		CW_USEDEFAULT, CW_USEDEFAULT, window_space.right - window_space.left, window_space.bottom-window_space.top,
 		nullptr,
 		nullptr,
 		GetModuleHandle(0),
@@ -193,23 +316,58 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     ShowWindow(hwnd_install_window, nCmdShow);
 
-    hwnd_label_text = CreateWindowEx(
+    hwnd_label = CreateWindowEx(
 		0,
 		L"STATIC",
 		START_LABEL,
-		WS_VISIBLE | WS_CHILD,
-		10,10,280,100,
+		WS_VISIBLE | WS_CHILD | ES_CENTER,
+		10, 40, CLIENT_WIDTH-20, 100,
 		hwnd_install_window,
 		nullptr,
 		GetModuleHandle(0),
 		nullptr);
 
-    hwnd_button = CreateWindowEx(
+    hwnd_label2 = CreateWindowEx(
+		0,
+		L"STATIC",
+		L"インストール先",
+		WS_VISIBLE | WS_CHILD | ES_CENTER,
+		10, 160, CLIENT_WIDTH-20, 30,
+		hwnd_install_window,
+		nullptr,
+		GetModuleHandle(0),
+		nullptr);
+
+    hwnd_button_set_install_path = CreateWindowEx(
+		0,
+		L"BUTTON",
+		L"変更",
+		WS_VISIBLE | WS_CHILD,
+		CLIENT_WIDTH/2 - 300, 200, 120, 40,
+		hwnd_install_window,
+		(HMENU)ID_BUTTON_SET_INSTALL_PATH,
+		GetModuleHandle(0),
+		nullptr
+    );
+
+    hwnd_edit_install_path = CreateWindowEx(
+		0,
+		L"EDIT",
+		DEFAULT_INSTALL_PATH,
+		WS_VISIBLE | WS_CHILD | WS_BORDER | ES_READONLY,
+		CLIENT_WIDTH/2 - 170, 200, 470, 40,
+		hwnd_install_window,
+        nullptr,
+		GetModuleHandle(0),
+		nullptr
+	);
+
+    hwnd_button_start = CreateWindowEx(
 		0,
 		L"BUTTON",
 		L"インストール",
 		WS_VISIBLE | WS_CHILD,
-		90,100,100,40,
+		CLIENT_WIDTH-10-160, CLIENT_HEIGHT-10-40, 160, 40,
 		hwnd_install_window,
 		(HMENU)ID_BUTTON_START,
 		GetModuleHandle(0),
