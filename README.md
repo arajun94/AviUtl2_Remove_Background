@@ -16,7 +16,9 @@ Ryzen5 5600H：約10フレーム/分
 
 
 ## インストール方法
-1. python3.13と最新版のGeforceドライバ（cudaを使用する場合）をインストール
+1. [python3.13](https://www.python.org/downloads/windows/)、最新のGeforceドライバ（CUDAを使用する場合）をインストール
+   
+   ※Pythonをインストールする際は、「Add python.exe to PATH」にチェックを入れて下さい
 2. installer.exeを実行してインストール
 3. AviUtl2を開き、上のバーから「表示」=>「AviUtl2 Remove Background」を選択
 

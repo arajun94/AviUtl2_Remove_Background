@@ -146,6 +146,13 @@ BOOL install(){
         return 0;
     }
 
+    //Pythonのバージョンが3.13でない場合に通知したい
+
+    if(!cmd(L"python.exe --version")){
+            MessageBox(hwnd_install_window, L"Pythonへのパスが通っていません", L"エラー", MB_OK);
+            return 0;
+    }
+
     SetWindowText(hwnd_label, L"Python依存関係をインストール中");
 
     SetCurrentDirectory(python_dir);
@@ -153,12 +160,12 @@ BOOL install(){
     if(PathFileExists(L".\\venv")){
         #ifndef DEBUG
         
-        SetWindowText(hwnd_label_text, L"既に存在するvenvフォルダを削除");
+        SetWindowText(hwnd_label, L"既に存在するvenvフォルダを削除");
         if(!cmd(L"cmd.exe /c rmdir /s /q .\\venv")){
             MessageBox(hwnd_install_window, L"venvフォルダの削除に失敗", L"エラー", MB_OK);
             return 0;
         }
-        
+
         #else 
 
         SetWindowText(hwnd_label, L"完了");
@@ -180,16 +187,11 @@ BOOL install(){
             MessageBox(hwnd_install_window, L"Pytorchのインストールに失敗", L"エラー", MB_OK);
             return 0;
         }
+    #endif
         if(!cmd(L".\\venv\\Scripts\\pip.exe install -r .\\requirements.txt")){
             MessageBox(hwnd_install_window, L"requirements.txtのインストールに失敗", L"エラー", MB_OK);
             return 0;
         }
-    #else
-        if(!cmd(L".\\venv\\Scripts\\pip.exe install -r .\\requirements_cpu.txt")){
-            MessageBox(hwnd_install_window, L"requirements_cpu.txtのインストールに失敗", L"エラー", MB_OK);
-            return 0;
-        }
-    #endif
     return 1;
 }
 
