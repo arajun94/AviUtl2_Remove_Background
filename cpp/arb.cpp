@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <Shlwapi.h>
 #include <clocale>
+#include <string>
 
 #include "plugin2.h"
 #include "logger2.h"
@@ -32,13 +33,13 @@ PCWSTR strItem[] = {
     L"sam2.1_hiera_large"
 };
 
+OBJECT_HANDLE* selected_object;
+
 typedef struct{
 	CHAR playback_position[32];
 	CHAR path[MAX_PATH];
-	OBJECT_HANDLE* object;
 	CHAR alias_data[1024];
 } VideoData;
-VideoData* video_data;
 
 //---------------------------------------------------------------------
 //	ログ出力機能初期化関数 (未定義なら呼ばれません)
@@ -58,8 +59,6 @@ EXTERN_C __declspec(dllexport) bool InitializePlugin(DWORD version) {
 //	プラグインDLL解放関数 (未定義なら呼ばれません)
 //---------------------------------------------------------------------
 EXTERN_C __declspec(dllexport) void UninitializePlugin() {
-	free(video_data->object);
-	free(video_data);
 }
 
 //プラグインフォルダを取得するための嘘の関数
@@ -74,56 +73,70 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 		case WM_COMMAND:
 			switch (LOWORD(wparam)) {
 				case ID_BUTTON_FILE_OPEN: {
-					//エイリアスデータ取得
-					edit_handle->call_edit_section_param(video_data, [](void* param, EDIT_SECTION* edit) {
-						typedef struct{
-							CHAR playback_position[32];
-							CHAR path[MAX_PATH];
-							OBJECT_HANDLE* object;
-							CHAR alias_data[1024];
-						} VideoData;
-						VideoData* video_data = (VideoData*)param;
-						OBJECT_HANDLE object_handle = edit->get_focus_object();
-						PCSTR item_value = edit->get_object_item_value(object_handle, L"動画ファイル", L"再生位置");
-						PCSTR file_path = edit->get_object_item_value(object_handle, L"動画ファイル", L"ファイル");
-						if(item_value!=nullptr && file_path !=nullptr){
-							strncpy(video_data->playback_position, item_value, 32);
-							strncpy(video_data->path, file_path, MAX_PATH);
-							*video_data->object = object_handle;
-							strncpy(video_data->alias_data, edit->get_object_alias(object_handle), 1024);
-						}
+					char** file_path = (char**)malloc(sizeof(char*));
+					edit_handle->call_edit_section_param(file_path, [](void * param, EDIT_SECTION* edit) {
+						*selected_object = edit->get_focus_object();
+
+						const char** file_path = (const char**)param;
+
+						*file_path = edit->get_object_item_value(*selected_object, L"動画ファイル", L"ファイル");
 					});
-					if(video_data->playback_position[0]=='\0'){
+
+					if(*selected_object == nullptr){
 						MessageBoxEx(hwnd, L"動画オブジェクト取得失敗", L"エラー", 0, 0);
+						return 0;
 						break;
 					}
-					wchar_t* tmp_w = util::str2wstr(video_data->path);
-					if(!PathFileExists(tmp_w)){
-						MessageBoxEx(hwnd, L"動画のパスが不正です", L"エラー", 0, 0);
+					wchar_t* file_path_w = util::str2wstr(*file_path);
+					if(!PathFileExists(file_path_w)){
+						MessageBoxEx(hwnd, L"動画パスが存在しません", L"エラー", 0, 0);
+						return 0;
 						break;
 					}
-					wchar_t* tmp2_w = util::str2wstr(video_data->playback_position);
-					tmp_w = util::combineWStr(tmp_w, L"   ", tmp2_w);
 					SetWindowText(
-						hwnd_edit_file_path, tmp_w
+						hwnd_edit_file_path, file_path_w
 					);
-					free(tmp2_w);
-					free(tmp_w);
 
 					return 0;
 					break;
 				}
 
-
-
-
 				case ID_BUTTON_EXEC: {
-					PSTR plugin_dir_a = util::wstr2str(plugin_dir);
-					PSTR venv = util::combineStr(plugin_dir_a, "\\ARB\\Python\\venv\\Scripts\\python.exe");
-					PSTR py = util::combineStr(plugin_dir_a, "\\ARB\\Python\\sam2_video.py");
+					std::string plugin_dir_a = util::wstr2str(plugin_dir);
+					std::string venv = plugin_dir_a + "\\ARB\\Python\\venv\\Scripts\\python.exe";
+					std::string py = plugin_dir_a + "\\ARB\\Python\\sam2_video.py";
+
+					if(*selected_object == nullptr){
+						MessageBoxEx(hwnd, L"動画オブジェクトを選択して下さい", L"エラー", 0, 0);
+						return 0;
+						break;
+					}
+
+					//ビデオデータ構造体を初期化
+					VideoData* video_data = (VideoData*)malloc(sizeof(VideoData));
+					memset(video_data, 0, sizeof(VideoData));
+					video_data->playback_position[0]='\0';
+
+					edit_handle->call_edit_section_param(video_data, [](void* param, EDIT_SECTION* edit) {
+						typedef struct{
+							CHAR playback_position[32];
+							CHAR path[MAX_PATH];
+							CHAR alias_data[1024];
+						} VideoData;
+						VideoData* video_data = (VideoData*)param;
+						PCSTR item_value = edit->get_object_item_value(*selected_object, L"動画ファイル", L"再生位置");
+						PCSTR file_path = edit->get_object_item_value(*selected_object, L"動画ファイル", L"ファイル");
+						PCSTR alias = edit->get_object_alias(*selected_object);
+						if(item_value!=nullptr && file_path !=nullptr && alias != nullptr){
+							strncpy(video_data->playback_position, item_value, 32);
+							strncpy(video_data->path, file_path, MAX_PATH);
+							strncpy(video_data->alias_data, alias, 1024);
+						}
+					});
 
 					if(video_data->playback_position[0]=='\0'){
-						MessageBoxEx(hwnd, L"動画オブジェクトを選択して下さい", L"エラー", 0, 0);
+						MessageBoxEx(hwnd, L"オブジェクトが存在しません", L"エラー", 0, 0);
+						return 0;
 						break;
 					}
 
@@ -135,6 +148,7 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 					FLOAT scale = wcstod(s, &end_wc);
 					if (errno != 0 || *end_wc != L'\0') {
 						MessageBoxEx(hwnd, L"スケールの値が不正です", L"エラー", 0, 0);
+						return 0;
 						break;
 					}
 
@@ -177,7 +191,7 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 
 					//Python呼び出し
 					CHAR command[1024];
-					sprintf(command, "%s %s \"%s\" %f %.3f %.3f %s", venv, py, video_data->path, scale, start, end, model_name);
+					sprintf(command, "%s %s \"%s\" %f %.3f %.3f %s", venv.c_str(), py.c_str(), video_data->path, scale, start, end, model_name);
 					if(system(command)!=0){
 						break;
 					}
@@ -196,12 +210,11 @@ effect.name=動画マスク
 						typedef struct{
 							CHAR playback_position[32];
 							CHAR path[MAX_PATH];
-							OBJECT_HANDLE* object;
 							CHAR alias_data[1024];
 						} VideoData;
 						VideoData* video_data = (VideoData*)param;
 						// 古いオブジェクトを削除
-						edit->delete_object(*video_data->object);
+						edit->delete_object(*selected_object);
 						// エイリアスデータからオブジェクトを作成
 						OBJECT_HANDLE new_object = edit->create_object_from_alias(video_data->alias_data, edit->info->layer, edit->info->frame, 10);
 						if (new_object) {
@@ -232,11 +245,8 @@ effect.name=動画マスク
 	return DefWindowProc(hwnd, message, wparam, lparam);
 }
 
-//---------------------------------------------------------------------
-//	プラグイン登録関数
-//---------------------------------------------------------------------
-EXTERN_C __declspec(dllexport) void RegisterPlugin(HOST_APP_TABLE* host) {
-	// プラグインの情報を設定
+static inline void init_window(HOST_APP_TABLE* host){
+// プラグインの情報を設定
 	host->set_plugin_information(L"AviUtl2 Remove Background");
 
 	// 自身のウィンドウを作成
@@ -372,15 +382,15 @@ EXTERN_C __declspec(dllexport) void RegisterPlugin(HOST_APP_TABLE* host) {
 
 	// ウィンドウを登録
 	host->register_window_client(PROJECT_NAME, hwnd);
+}
 
+//---------------------------------------------------------------------
+//	プラグイン登録関数
+//---------------------------------------------------------------------
+EXTERN_C __declspec(dllexport) void RegisterPlugin(HOST_APP_TABLE* host) {
+	init_window(host);
 	// 編集ハンドルを作成
 	edit_handle = host->create_edit_handle();
-
-	video_data = (VideoData*)malloc(sizeof(VideoData));
-	memset(video_data, 0, sizeof(VideoData));
-	video_data->object = (OBJECT_HANDLE*)malloc(sizeof(OBJECT_HANDLE));
-	memset(video_data->object, 0, sizeof(OBJECT_HANDLE));
-	video_data->playback_position[0]='\0';
 
 	//プラグインフォルダ取得
 	HMODULE hModule;
@@ -390,7 +400,9 @@ EXTERN_C __declspec(dllexport) void RegisterPlugin(HOST_APP_TABLE* host) {
 		&hModule
 	);
 	GetModuleFileName(hModule, plugin_dir, MAX_PATH);
-
 	PathRemoveFileSpec(plugin_dir);
+
+	selected_object = (OBJECT_HANDLE*)malloc(sizeof(OBJECT_HANDLE));
+	*selected_object = nullptr;
 }
 
