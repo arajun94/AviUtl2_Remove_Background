@@ -28,13 +28,12 @@ endif()
 target_compile_definitions(installer PRIVATE USE_CUDA)
 
 # インストール時に既にあるvenvを初期化するかどうか
-target_compile_definitions(installer PRIVATE DEBUG)
+#target_compile_definitions(installer PRIVATE DEBUG)
 
 include_directories(${CMAKE_SOURCE_DIR}/aviutl2_sdk)
 
 find_package(Python REQUIRED COMPONENTS Interpreter Development)
 target_include_directories(arb PRIVATE ${Python3_INCLUDE_DIRS})
-find_package(CUDAToolkit REQUIRED)
 
 target_compile_definitions(
     arb PRIVATE
@@ -66,6 +65,12 @@ target_compile_definitions(
 
 target_compile_definitions(
     installer PRIVATE
+    UNICODE
+    _UNICODE
+)
+
+target_compile_definitions(
+    util PRIVATE
     UNICODE
     _UNICODE
 )
@@ -109,6 +114,7 @@ file(COPY ${RQ_TXT}
 
 target_link_libraries(arb PRIVATE util)
 target_link_libraries(arb PRIVATE shlwapi)
+target_link_libraries(util PRIVATE shlwapi)
 target_link_libraries(test PRIVATE util)
 target_link_libraries(installer PRIVATE shlwapi)
-target_link_libraries(installer PRIVATE CUDA::cudart)
+target_link_libraries(installer PRIVATE util)

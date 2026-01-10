@@ -1,7 +1,9 @@
 #include <Windows.h>
-#include <Shlwapi.h>
 #include <cstdlib>
 #include <shobjidl.h>
+#include <Shlwapi.h>
+
+#include "util.hpp"
 
 
 #define PROJECT_NAME L"Aviutl2 Remove Background Installer"
@@ -68,51 +70,6 @@ bool SelectFolder(HWND hwnd, PWSTR outPath)
     return false;
 }
 
-BOOL cmd(PCWSTR c){
-    PWSTR command = (PWSTR)malloc(sizeof(c)*(wcslen(c) + 1));
-    StrCpyW(command, c);
-    STARTUPINFO si{};
-    PROCESS_INFORMATION pi{};
-    si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESHOWWINDOW;
-    if(CreateProcess(
-        nullptr,
-        command,
-        nullptr, nullptr,
-        FALSE,
-        0,
-        nullptr, nullptr,
-        &si, &pi
-    )==0){
-        return 0;
-    }
-    
-    while (WaitForSingleObject(pi.hProcess, 100)) {
-        MSG msg;
-        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-        }
-    }
-
-    DWORD exitCode = 0;
-
-    //エラー
-    if(!GetExitCodeProcess(pi.hProcess, &exitCode) || exitCode != 0){
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
-        free(command);
-        return 0;
-    }
-
-
-    //正常
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-    free(command);
-    return 1;
-}
-
 BOOL install(){
     SetWindowText(hwnd_label, L"ファイルをコピー中");
 
@@ -134,23 +91,26 @@ BOOL install(){
         return 0;
     }
 
-
-
-    if(!cmd(plugin_copy_cmd)){
+    if(!util::cmd(plugin_copy_cmd, false)){
         MessageBox(hwnd_install_window, L"ファイルコピーに失敗\nAviutl2を開いている場合は閉じて下さい", L"エラー", MB_OK);
         return 0;
     }
 
-    if(!cmd(script_copy_cmd)){
+    if(!util::cmd(script_copy_cmd, false)){
         MessageBox(hwnd_install_window, L"ファイルコピーに失敗\nAviutl2を開いている場合は閉じて下さい", L"エラー", MB_OK);
         return 0;
     }
 
     //Pythonのバージョンが3.13でない場合に通知したい
 
-    if(!cmd(L"python.exe --version")){
+    if(!util::cmd(L"python.exe --version", false)){
             MessageBox(hwnd_install_window, L"Pythonへのパスが通っていません", L"エラー", MB_OK);
             return 0;
+    }
+
+    if(util::cmd_get_out(L"python.exe --version").substr(0,11) != "Python 3.13"){
+        MessageBox(hwnd_install_window, L"Pythonのバージョンが3.13でない", L"エラー", MB_OK);
+        return 0;
     }
 
     SetWindowText(hwnd_label, L"Python依存関係をインストール中");
@@ -161,7 +121,7 @@ BOOL install(){
         #ifndef DEBUG
         
         SetWindowText(hwnd_label, L"既に存在するvenvフォルダを削除");
-        if(!cmd(L"cmd.exe /c rmdir /s /q .\\venv")){
+        if(!util::cmd(L"cmd.exe /c rmdir /s /q .\\venv", false)){
             MessageBox(hwnd_install_window, L"venvフォルダの削除に失敗", L"エラー", MB_OK);
             return 0;
         }
@@ -175,7 +135,7 @@ BOOL install(){
     }
     SetWindowText(hwnd_label, L"venvを作成中");
 
-    if(!cmd(L"python.exe -m venv venv")){
+    if(!util::cmd(L"python.exe -m venv venv", false)){
         MessageBox(hwnd_install_window, L"venvの作成に失敗", L"エラー", MB_OK);
         return 0;
     }
@@ -183,12 +143,12 @@ BOOL install(){
     SetWindowText(hwnd_label, L"ライブラリをインストール中（数分かかります）");
 
     #ifdef USE_CUDA
-        if(!cmd(L".\\venv\\Scripts\\pip.exe install torch==2.9.1+cu130 torchvision==0.24.1+cu130 --index-url https://download.pytorch.org/whl/cu130")){
+        if(!util::cmd(L".\\venv\\Scripts\\pip.exe install torch==2.9.1+cu130 torchvision==0.24.1+cu130 --index-url https://download.pytorch.org/whl/cu130", false)){
             MessageBox(hwnd_install_window, L"Pytorchのインストールに失敗", L"エラー", MB_OK);
             return 0;
         }
     #endif
-        if(!cmd(L".\\venv\\Scripts\\pip.exe install -r .\\requirements.txt")){
+        if(!util::cmd(L".\\venv\\Scripts\\pip.exe install -r .\\requirements.txt", false)){
             MessageBox(hwnd_install_window, L"requirements.txtのインストールに失敗", L"エラー", MB_OK);
             return 0;
         }

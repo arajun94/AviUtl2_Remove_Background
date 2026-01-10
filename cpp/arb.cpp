@@ -12,6 +12,8 @@
 #include "util.hpp"
 
 #define PROJECT_NAME L"AviUtl2 Remove Background"
+#define ERROR_CAPTION L"AviUtl2 Remove Background Error"
+
 #define ID_BUTTON_FILE_OPEN 1001
 #define ID_EDIT_SCALE 1002
 #define ID_EDIT_FILE_PATH 1004
@@ -23,6 +25,7 @@ LOG_HANDLE* logger;
 HWND hwnd_edit_file_path;
 HWND hwnd_edit_scale;
 HWND hwnd_combo_model_name;
+HWND hwnd_button_exec;
 
 WCHAR plugin_dir[MAX_PATH];
 
@@ -36,9 +39,10 @@ PCWSTR strItem[] = {
 OBJECT_HANDLE* selected_object;
 
 typedef struct{
-	CHAR playback_position[32];
-	CHAR path[MAX_PATH];
-	CHAR alias_data[1024];
+	std::string playback_position;
+	std::string path;
+	std::string alias_data;
+	OBJECT_LAYER_FRAME layer_frame;
 } VideoData;
 
 //---------------------------------------------------------------------
@@ -65,6 +69,136 @@ EXTERN_C __declspec(dllexport) void UninitializePlugin() {
 void dummy(){}
 
 
+//エイリアス文字列から特定の値を取得
+std::string get_object_item_value(std::string alias_data, std::string effect_name, std::string key){
+	size_t now_pos = alias_data.find("effect.name="+effect_name);
+	if(now_pos == std::string::npos)return "";
+	now_pos = alias_data.find("\n"+key, now_pos);
+	if(now_pos == std::string::npos)return "";
+	now_pos = alias_data.find("=",now_pos);
+	if(now_pos == std::string::npos)return "";
+
+	size_t start_pos = now_pos+1;
+
+	size_t end_pos = alias_data.find("\n", start_pos)-1;
+	if(end_pos == std::string::npos)return "";
+
+	return alias_data.substr(start_pos, end_pos-start_pos);
+}
+
+bool exec_do(HWND hwnd){
+	std::string plugin_dir_a = util::wstr2str(plugin_dir);
+	std::string venv = plugin_dir_a + "\\ARB\\Python\\venv\\Scripts\\python.exe";
+	std::string py = plugin_dir_a + "\\ARB\\Python\\sam2_video.py";
+
+	if(*selected_object == nullptr){
+		MessageBoxEx(hwnd, L"動画オブジェクトを選択して下さい", ERROR_CAPTION, 0, 0);
+		return 0;
+	}
+
+	VideoData video_data;
+
+	//コールバック関数内でビデオデータを取得
+	edit_handle->call_edit_section_param(&video_data, [](void* param, EDIT_SECTION* edit) {
+		VideoData* video_data = (VideoData*)param;
+		PCSTR alias_data = edit->get_object_alias(*selected_object);
+
+		if(alias_data != nullptr){
+			video_data->alias_data = alias_data;
+			video_data->layer_frame = edit->get_object_layer_frame(*selected_object);
+		}
+	});
+
+	//edit->get_object_item_valueはたまに信用ならない
+	video_data.playback_position = get_object_item_value(video_data.alias_data, "動画ファイル", "再生位置");
+	video_data.path = get_object_item_value(video_data.alias_data, "動画ファイル", "ファイル");
+
+	std::vector<std::string> split = util::splitStr(video_data.playback_position, ',');
+
+	if(video_data.playback_position.empty()
+	|| video_data.path.empty() 
+	|| video_data.alias_data.empty()
+	|| split.size() < 4 ){
+		MessageBoxEx(hwnd, L"オブジェクトデータの取得に失敗", ERROR_CAPTION, 0, 0);
+		return 0;
+	}
+
+	//スケール取得
+	WCHAR s[16];
+	GetWindowText(hwnd_edit_scale, s, 16);
+	wchar_t* end_wc;
+	errno = 0;
+	FLOAT scale = wcstod(s, &end_wc);
+	if (errno != 0 || *end_wc != L'\0') {
+		MessageBoxEx(hwnd, L"スケールの値が不正です", ERROR_CAPTION, 0, 0);
+		return 0;
+	}
+
+	//エイリアスデータからstart,endを取得
+
+	std::string start_s = split[0];
+	std::string end_s = split[1];
+	FLOAT start = 0.0;
+	FLOAT end = 0.0;
+	try{
+		start = std::stof(start_s);
+		end = std::stof(end_s);
+	}catch (const std::exception& e){
+		MessageBoxEx(hwnd, L"start,endの取得に失敗", ERROR_CAPTION, 0, 0);
+		return 0;
+	}
+
+	//モデルネーム取得
+	std::string model_name = util::wstr2str(strItem[SendMessage(hwnd_combo_model_name , CB_GETCURSEL , 0 , 0)]);
+
+	std::string mask = util::setExt(util::decorPath(video_data.path, "_mask_"+start_s+"_"+end_s), "mp4");
+
+	PWSTR mask_w = util::str2wstr(mask.c_str());
+	int i=0;
+	while(PathFileExists(mask_w)){
+		mask = util::decorPath(mask, "_"+i);
+		mask_w = util::str2wstr(mask.c_str());
+		i++;
+	}
+
+	//Python呼び出し
+	CHAR command[1024];
+	sprintf(command, "\"%s\" \"%s\" \"%s\" %f %.3f %.3f %s", venv.c_str(), py.c_str(), video_data.path.c_str(), scale, start, end, model_name.c_str());
+	if(!util::cmd(util::str2wstr(command), true)){
+		MessageBoxEx(hwnd, L"実行が中断されました", ERROR_CAPTION, 0, 0);
+		return 0;
+	}
+
+	//エイリアス作成
+	video_data.alias_data +=u8R"(
+[Object.2]
+effect.name=動画マスク
+動画ファイル=)"+mask+u8R"(
+オフセット=)"+start_s;
+	//strncpy(video_data->path, mask, MAX_PATH);
+	edit_handle->call_edit_section_param(&video_data, [](void* param, EDIT_SECTION* edit) {
+		VideoData* video_data = (VideoData*)param;
+		// 古いオブジェクトを削除
+		edit->delete_object(*selected_object);
+		// エイリアスデータからオブジェクトを作成
+		OBJECT_HANDLE new_object = edit->create_object_from_alias(video_data->alias_data.c_str(), video_data->layer_frame.layer, video_data->layer_frame.start, 100);
+		if (new_object) {
+			logger->log(logger, L"create alias object");
+			edit->set_focus_object(new_object);
+		} else {
+			logger->warn(logger, L"create alias failed");
+		}
+	});
+
+	SetWindowText(
+		hwnd_edit_file_path, L"（トラックバーから動画オブジェクトを選択し、選択ボタンを押して下さい）"
+	);
+
+	*selected_object = nullptr;
+	return 1;
+}
+
+
 //---------------------------------------------------------------------
 //	ウィンドウプロシージャ
 //---------------------------------------------------------------------
@@ -83,13 +217,13 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 					});
 
 					if(*selected_object == nullptr){
-						MessageBoxEx(hwnd, L"動画オブジェクト取得失敗", L"エラー", 0, 0);
+						MessageBoxEx(hwnd, L"動画オブジェクト取得失敗", ERROR_CAPTION, 0, 0);
 						return 0;
 						break;
 					}
 					wchar_t* file_path_w = util::str2wstr(*file_path);
 					if(!PathFileExists(file_path_w)){
-						MessageBoxEx(hwnd, L"動画パスが存在しません", L"エラー", 0, 0);
+						MessageBoxEx(hwnd, L"動画パスが存在しません", ERROR_CAPTION, 0, 0);
 						return 0;
 						break;
 					}
@@ -102,140 +236,9 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 				}
 
 				case ID_BUTTON_EXEC: {
-					std::string plugin_dir_a = util::wstr2str(plugin_dir);
-					std::string venv = plugin_dir_a + "\\ARB\\Python\\venv\\Scripts\\python.exe";
-					std::string py = plugin_dir_a + "\\ARB\\Python\\sam2_video.py";
-
-					if(*selected_object == nullptr){
-						MessageBoxEx(hwnd, L"動画オブジェクトを選択して下さい", L"エラー", 0, 0);
-						return 0;
-						break;
-					}
-
-					//ビデオデータ構造体を初期化
-					VideoData* video_data = (VideoData*)malloc(sizeof(VideoData));
-					memset(video_data, 0, sizeof(VideoData));
-					video_data->playback_position[0]='\0';
-
-					edit_handle->call_edit_section_param(video_data, [](void* param, EDIT_SECTION* edit) {
-						typedef struct{
-							CHAR playback_position[32];
-							CHAR path[MAX_PATH];
-							CHAR alias_data[1024];
-						} VideoData;
-						VideoData* video_data = (VideoData*)param;
-						PCSTR item_value = edit->get_object_item_value(*selected_object, L"動画ファイル", L"再生位置");
-						PCSTR file_path = edit->get_object_item_value(*selected_object, L"動画ファイル", L"ファイル");
-						PCSTR alias = edit->get_object_alias(*selected_object);
-						if(item_value!=nullptr && file_path !=nullptr && alias != nullptr){
-							strncpy(video_data->playback_position, item_value, 32);
-							strncpy(video_data->path, file_path, MAX_PATH);
-							strncpy(video_data->alias_data, alias, 1024);
-						}
-					});
-
-					if(video_data->playback_position[0]=='\0'){
-						MessageBoxEx(hwnd, L"オブジェクトが存在しません", L"エラー", 0, 0);
-						return 0;
-						break;
-					}
-
-					//スケール取得
-					WCHAR s[16];
-					GetWindowText(hwnd_edit_scale, s, 16);
-					wchar_t* end_wc;
-					errno = 0;
-					FLOAT scale = wcstod(s, &end_wc);
-					if (errno != 0 || *end_wc != L'\0') {
-						MessageBoxEx(hwnd, L"スケールの値が不正です", L"エラー", 0, 0);
-						return 0;
-						break;
-					}
-
-					//エイリアスデータからstart,endを取得
-					PSTR* split;
-					WORD len;
-					std::tie(split, len) = util::splitStr(video_data->playback_position, ',');
-					PSTR end_c;
-					FLOAT start = strtod(split[0], &end_c);
-					if (errno != 0 || *end_c != '\0') {
-						break;
-					}
-					FLOAT end = strtod(split[1], &end_c);
-					if (errno != 0 || *end_c != '\0') {
-						break;
-					}
-
-					//モデルネーム取得
-					PSTR model_name = util::wstr2str(strItem[SendMessage(hwnd_combo_model_name , CB_GETCURSEL , 0 , 0)]);
-
-					char* tmp = util::combineStr("_mask_", split[0], "_", split[1]);
-					PSTR mask = util::decorPath(video_data->path, tmp);
-					free(tmp);
-
-					WORD i=0;
-					PSTR decor;
-					wchar_t* tmp_w = util::str2wstr(mask);
-					while(PathFileExists(tmp_w)){
-						decor = (PSTR)malloc(sprintf(nullptr, "_mask_%s_%s_%d",split[0], split[1], i)*sizeof(CHAR));
-						sprintf(decor, "_%d", i);
-						tmp = mask;
-						free(mask);
-						mask = util::decorPath(tmp, decor);
-						free(tmp);
-						free(decor);
-						free(tmp_w);
-						tmp_w = util::str2wstr(mask);
-					}
-					free(tmp_w);
-
-					//Python呼び出し
-					CHAR command[1024];
-					sprintf(command, "%s %s \"%s\" %f %.3f %.3f %s", venv.c_str(), py.c_str(), video_data->path, scale, start, end, model_name);
-					if(system(command)!=0){
-						break;
-					}
-
-					//エイリアス作成
-					tmp = util::combineStr(video_data->alias_data, 
-u8R"(
-[Object.2]
-effect.name=動画マスク
-動画ファイル=)", mask, u8R"(
-オフセット=)", split[0]);
-					strncpy(video_data->alias_data, tmp, 1024);
-					free(tmp);
-					//strncpy(video_data->path, mask, MAX_PATH);
-					edit_handle->call_edit_section_param(video_data, [](void* param, EDIT_SECTION* edit) {
-						typedef struct{
-							CHAR playback_position[32];
-							CHAR path[MAX_PATH];
-							CHAR alias_data[1024];
-						} VideoData;
-						VideoData* video_data = (VideoData*)param;
-						// 古いオブジェクトを削除
-						edit->delete_object(*selected_object);
-						// エイリアスデータからオブジェクトを作成
-						OBJECT_HANDLE new_object = edit->create_object_from_alias(video_data->alias_data, edit->info->layer, edit->info->frame, 10);
-						if (new_object) {
-							logger->log(logger, L"create alias object");
-							edit->set_focus_object(new_object);
-						} else {
-							logger->warn(logger, L"create alias failed");
-						}
-					});
-
-					SetWindowText(
-						hwnd_edit_file_path, L"（トラックバーから動画オブジェクトを選択し、選択ボタンを押して下さい）"
-					);
-					
-					free(mask);
-					free(model_name);
-					for(WORD i=0;i<len;i++){
-						free(split[i]);
-					}
-					free(split);
-					video_data->playback_position[0]='\0';
+					EnableWindow(hwnd_button_exec, FALSE);
+					exec_do(hwnd);
+					EnableWindow(hwnd_button_exec, TRUE);
 					return 0;
 					break;
 				}
@@ -244,6 +247,9 @@ effect.name=動画マスク
 	}
 	return DefWindowProc(hwnd, message, wparam, lparam);
 }
+
+
+
 
 static inline void init_window(HOST_APP_TABLE* host){
 // プラグインの情報を設定
@@ -368,7 +374,7 @@ static inline void init_window(HOST_APP_TABLE* host){
 	}
 	SendMessage(hwnd_combo_model_name, CB_SETCURSEL, (WPARAM)1, (LPARAM)0);
 
-	CreateWindowEx(
+	hwnd_button_exec = CreateWindowEx(
 		0,
 		WC_BUTTON,
 		L"実行",
@@ -405,4 +411,3 @@ EXTERN_C __declspec(dllexport) void RegisterPlugin(HOST_APP_TABLE* host) {
 	selected_object = (OBJECT_HANDLE*)malloc(sizeof(OBJECT_HANDLE));
 	*selected_object = nullptr;
 }
-
