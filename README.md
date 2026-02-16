@@ -20,6 +20,8 @@ Ryzen5 5600H：約10フレーム/分
    
    ※Pythonをインストールする際は、「Add python.exe to PATH」にチェックを入れて下さい
 2. installer.exeを実行してインストール
+   
+   ※「スマートアプリコントロールが安全でない可能性のあるアプリをブロックしました」と出る場合は、Windowsセキュリティで「アプリとブラウザー コントロール」->「スマートアプリコントロールの設定」からオフにすると実行できます（自己責任）
 3. AviUtl2を開き、上のバーから「表示」=>「AviUtl2 Remove Background」を選択
 
 ## アップデート
@@ -27,6 +29,10 @@ Ryzen5 5600H：約10フレーム/分
 
 ## ダウンロード
 https://github.com/arajun94/AviUtl2_Remove_Background/releases
+
+cpuを使用する場合はarbx.x.zip
+
+cudaを使用する場合はarbx.x_cuda.zip
 
 ## ライセンス
 MITライセンス
