@@ -1,154 +1,154 @@
-# ffmpeg -i input.mp4 -vf fps=24 -s 1920x1080 -q:v 2 -start_number 0 frames/'%03d.jpg'
+# ffmpeg -i input.MOV -vf fps=24 -s 1920x1080 -q:v 2 -start_number 0 frames/'%03d.jpg'
+# python sam2_video.py
 
+# ffmpeg -f concat -safe 0 -i videocombine.txt -c copy output.mp4
+
+# in 動画ファイルパス フレームレート 分割フレーム数
+# opencvで点を選択
+# out 出力をルダにマスクaviを保存
+
+model_cfg = {
+    "sam2.1_hiera_tiny": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "sam2.1_hiera_small": "configs/sam2.1/sam2.1_hiera_s.yaml",
+    "sam2.1_hiera_base_plus": "configs/sam2.1/sam2.1_hiera_b+.yaml",
+    "sam2.1_hiera_large": "configs/sam2.1/sam2.1_hiera_l.yaml"
+}
+
+kernel_size = 4
 
 import os
-# if using Apple MPS, fall back to CPU for unsupported ops
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+import sys
 import numpy as np
-import torch
-import matplotlib
 import matplotlib.pyplot as plt
-from PIL import Image
 import cv2
-import glob
+import plot
+import shutil
+import requests
 
+from PIL import Image
+import pillow_heif
 
-def show_mask(mask, ax, obj_id=None, random_color=False):
-    if random_color:
-        color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
+pillow_heif.register_heif_opener()
+
+base_dir = os.path.dirname(os.path.abspath(__file__)) # .../Python
+
+def main():
+    args = sys.argv[1:]
+    if len(args) < 2:
+        raise NotImplementedError("引数が足りません")
+    
+    original_image_path = args[0]
+    original_image_name, original_video_ext = os.path.splitext(os.path.basename(original_image_path))
+
+    cache_path = os.path.join(base_dir, "Cache")
+    cache_image_path = os.path.join(cache_path,"input"+original_video_ext)
+    cache_mask_path = os.path.join(cache_path,"output_mask.png")
+
+    model_name = args[1]
+
+    original_mask_path = os.path.join(os.path.dirname(original_image_path), original_image_name + f"_mask.png")
+    i=0
+    while(os.path.isfile(original_mask_path)):
+        original_mask_path = os.path.join(os.path.dirname(original_image_path), original_image_name + f"_mask_{i}.png")
+        i+=1
+
+    print("入力画像: " + original_image_path)
+    print("モデル名: " + model_name)
+
+    if not model_name in model_cfg.keys():
+        raise ValueError("不正なモデル名です")
+        exit(1)
+
+    model_filename = model_name + ".pt"
+    model_path = os.path.join(base_dir, model_filename)
+    model_url = 'https://dl.fbaipublicfiles.com/segment_anything_2/092824/' + model_filename
+    print("キャッシュフォルダを初期化中...")
+    if os.path.isdir(cache_path):
+        shutil.rmtree(cache_path)
+    os.makedirs(cache_path)
+
+    shutil.copy(original_image_path, cache_image_path)
+    print("ライブラリを読み込み中...")
+
+    import torch
+    from sam2.build_sam import build_sam2_video_predictor
+    
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
     else:
-        cmap = plt.get_cmap("tab10")
-        cmap_idx = 0 if obj_id is None else obj_id
-        color = np.array([*cmap(cmap_idx)[:3], 0.6])
-    h, w = mask.shape[-2:]
-    mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
-    ax.imshow(mask_image)
+        device = torch.device("cpu")
 
+    # cudaの場合の最適化設定
+    if device.type == "cuda":
+        torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
 
-def show_points(coords, labels, ax, marker_size=200):
-    pos_points = coords[labels==1]
-    neg_points = coords[labels==0]
-    ax.scatter(pos_points[:, 0], pos_points[:, 1], color='green', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
-    ax.scatter(neg_points[:, 0], neg_points[:, 1], color='red', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
+    print("モデルをロード中...")
 
+    if not os.path.isfile(model_path):
+        urlData = requests.get(model_url).content
+        with open(model_path ,mode='wb') as f:
+            f.write(urlData)
 
-# select the device for computation
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-elif torch.backends.mps.is_available():
-    device = torch.device("mps")
-else:
-    device = torch.device("cpu")
-print(f"using device: {device}")
+    predictor = build_sam2_video_predictor(model_cfg[model_name], model_path, device=device)
 
-if device.type == "cuda":
-    # use bfloat16 for the entire notebook
-    torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
-    # turn on tfloat32 for Ampere GPUs (https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices)
-    if torch.cuda.get_device_properties(0).major >= 8:
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-        torch.backends.cudnn.benchmark = True
-elif device.type == "mps":
-    print(
-        "\nSupport for MPS devices is preliminary. SAM 2 is trained with CUDA and might "
-        "give numerically different outputs and sometimes degraded performance on MPS. "
-        "See e.g. https://github.com/pytorch/pytorch/issues/84936 for a discussion."
-    )
+    print("フレーム読み込み中...")
+    frame_folder = os.path.join(cache_path, "frames")
+    os.makedirs(frame_folder, exist_ok=True)
 
-# `video_dir` a directory of JPEG frames with filenames like `<frame_index>.jpg`
-video_dir = "./frames"
+    pil_img = Image.open(cache_image_path).convert("RGB")
+    cv_img = np.array(pil_img)
+    cv_img = cv_img[:, :, ::-1]
+    cv2.imwrite(os.path.join(frame_folder, "00000.jpg"), cv_img)
 
-# scan all the JPEG frame names in this directory
-frame_names = [
-    p for p in os.listdir(video_dir)
-    if os.path.splitext(p)[-1] in [".jpg", ".jpeg", ".JPG", ".JPEG"]
-]
-frame_names.sort(key=lambda p: int(os.path.splitext(p)[0]))
+    frame_path = os.path.join(frame_folder, "00000.jpg")
+    frame_height, frame_width = cv_img.shape[:2]
 
+    torch.set_grad_enabled(False)
 
-sam2_checkpoint = "sam2.1_hiera_small.pt"
-model_cfg = "configs/sam2.1/sam2.1_hiera_s.yaml"
+    inference_state = predictor.init_state(video_path=frame_folder)
+    predictor.reset_state(inference_state)
 
-from sam2.build_sam import build_sam2_video_predictor
-predictor = build_sam2_video_predictor(model_cfg, sam2_checkpoint, device=device)
-inference_state = predictor.init_state(video_path=video_dir)
-predictor.reset_state(inference_state)
+    print("別ウィンドウで点をプロットして下さい")
 
-'''
-#IMG_2004
-prompts = [
-    [
-        np.array([[1100, 1200], [1100, 800], [1100, 1600], [1000, 1300], [1000, 1300], [1000, 1000], [1000, 1500], [1200, 1900], [1230, 1420], [920, 1700], [900, 1750], [950, 1600]], dtype=np.float32), 
-        np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0], np.int32)
-    ]
-]
-'''
+    # プロット
+    ok = False
+    plot_points = np.empty((0,3))
+    while(ok==False):
+        plot_points = plot.plotter(frame_path, plot_points)
 
-'''
-#IMG_1970
-prompts = [
-    [
-        np.array([[200, 1000]], dtype=np.float32), 
-        np.array([1], np.int32)
-    ],
-    [
-        np.array([[3600, 1600]], dtype=np.float32), 
-        np.array([1], np.int32)
-    ]
-]
-'''
+        prompts = [
+            [
+                np.array(plot_points[:,0:2],dtype=np.float32),
+                np.array(plot_points[:,2],np.int32)
+            ]
+        ]
+        for ann_obj_id, [points,labels] in enumerate(prompts):
+            _, out_obj_ids, out_mask_logits = predictor.add_new_points_or_box(
+                inference_state=inference_state,
+                frame_idx=0,
+                obj_id=ann_obj_id,
+                points=points,
+                labels=labels,
+            )
 
-'''
-#IMG_1970
-prompts = [
-    [
-        np.array([[1400, 1000], [1500, 1500], [1300, 1200], [1300, 1000], [1450, 1400]], dtype=np.float32), 
-        np.array([1, 1, 1, 1, 1], np.int32)
-    ],
-]
-'''
-#IMG_1970
-prompts = [
-    [
-        np.array([[320, 500]], dtype=np.float32), 
-        np.array([1], np.int32)
-    ],
-]
+        ok = plot.previewer(frame_path, out_mask_logits, out_obj_ids, points, labels)
 
-ann_frame_idx = 0
+    out_mask = (out_mask_logits[out_obj_ids[0]] > 0.0).cpu().numpy().astype(np.uint8)
 
-for ann_obj_id, [points,labels] in enumerate(prompts):
-    _, out_obj_ids, out_mask_logits = predictor.add_new_points_or_box(
-        inference_state=inference_state,
-        frame_idx=ann_frame_idx,
-        obj_id=ann_obj_id,
-        points=points,
-        labels=labels,
-    )
-
-# show the results on the current (interacted) frame
-plt.figure(figsize=(9, 6))
-plt.title(f"frame {ann_frame_idx}")
-plt.imshow(Image.open(os.path.join(video_dir, frame_names[ann_frame_idx])))
-show_points(points, labels, plt.gca())
-
-frame = cv2.imread(os.path.join(video_dir, frame_names[ann_frame_idx]))
-frame = cv2.cvtColor(frame, cv2.COLOR_BGR2BGRA)
-frame_result = np.zeros_like(frame)
-for i, out_obj_id in enumerate(out_obj_ids):
-    out_mask = (out_mask_logits[i] > 0.0).cpu().numpy()
-    show_points(*prompts[out_obj_id], plt.gca())
-    show_mask(out_mask, plt.gca(), obj_id=out_obj_id)
     mask_2d = out_mask.squeeze() if out_mask.ndim == 3 else out_mask
-    # Convert boolean mask to uint8 mask (0 or 255) for OpenCV
+
     cv2_mask = mask_2d.astype(np.uint8) * 255
-    kernel = np.ones((16, 16), np.uint8)
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
     cv2_mask = cv2.morphologyEx(cv2_mask, cv2.MORPH_CLOSE, kernel)
+    cv2_mask = cv2.cvtColor(cv2_mask, cv2.COLOR_GRAY2BGR)
 
-    frame_result = frame
-    frame_result[:, :, 3] = cv2_mask
+    frame_result = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
+    frame_result = cv2.bitwise_or(frame_result, cv2_mask)
 
-    cv2.imwrite('./output_mask.png', cv2_mask)
-    cv2.imwrite('./output_result.png', frame_result)
-plt.show()
+    cv2.imwrite(cache_mask_path, cv2_mask)
+    shutil.copy(cache_mask_path, original_mask_path)
+
+if __name__ == "__main__":
+    main()

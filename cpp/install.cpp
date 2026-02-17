@@ -143,15 +143,16 @@ BOOL install(){
     SetWindowText(hwnd_label, L"ライブラリをインストール中（数分かかります）");
 
     #ifdef USE_CUDA
-        if(!util::cmd(L".\\venv\\Scripts\\pip.exe install torch==2.9.1+cu130 torchvision==0.24.1+cu130 --index-url https://download.pytorch.org/whl/cu130", false)){
-            MessageBox(hwnd_install_window, L"Pytorchのインストールに失敗", L"エラー", MB_OK);
-            return 0;
-        }
+    if(!util::cmd(L".\\venv\\Scripts\\pip.exe install torch==2.9.1+cu130 torchvision==0.24.1+cu130 --index-url https://download.pytorch.org/whl/cu130", false)){
+        MessageBox(hwnd_install_window, L"Pytorchのインストールに失敗", L"エラー", MB_OK);
+        return 0;
+    }
     #endif
-        if(!util::cmd(L".\\venv\\Scripts\\pip.exe install -r .\\requirements.txt", false)){
-            MessageBox(hwnd_install_window, L"requirements.txtのインストールに失敗", L"エラー", MB_OK);
-            return 0;
-        }
+
+    if(!util::cmd(L".\\venv\\Scripts\\pip.exe install -r .\\requirements.txt", false)){
+        MessageBox(hwnd_install_window, L"requirements.txtのインストールに失敗", L"エラー", MB_OK);
+        return 0;
+    }
     return 1;
 }
 
