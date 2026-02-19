@@ -24,46 +24,12 @@ import cv2
 import plot
 import shutil
 import requests
+import fps_trans
 
 base_dir = os.path.dirname(os.path.abspath(__file__)) # .../Python
-cache_path = os.path.join(base_dir, "Cache")
-
-args = sys.argv[1:]
-if len(args) < 5:
-    raise NotImplementedError("引数が足りません")
-
-original_video_path = args[0]
-original_video_name, original_video_ext = os.path.splitext(os.path.basename(original_video_path))
-input_video_path = os.path.join(cache_path,"input"+original_video_ext)
-output_mask_path = os.path.join(cache_path,"output_mask.mp4")
-
-scale = float(args[1])
-start_sec = float(args[2])
-end_sec = float(args[3])
-model_name = args[4]
-
-original_mask_path = os.path.join(os.path.dirname(original_video_path),original_video_name + f"_mask_{start_sec:.3f}_{end_sec:.3f}.mp4")
-i=0
-while(os.path.isfile(original_mask_path)):
-    original_mask_path = os.path.join(os.path.dirname(original_video_path),original_video_name + f"_mask_{start_sec:.3f}_{end_sec:.3f}_{i}.mp4")
-    i+=1
-
-print("入力動画: " + original_video_path)
-print("スケール: " + str(scale))
-print("開始秒数: " + str(start_sec))
-print("終了秒数: " + str(end_sec))
-print("モデル名: " + model_name)
-
-if not model_name in model_cfg.keys():
-    raise ValueError("不正なモデル名です")
-    exit(1)
-
-model_filename = model_name + ".pt"
-model_path = os.path.join(base_dir, model_filename)
-model_url = 'https://dl.fbaipublicfiles.com/segment_anything_2/092824/' + model_filename
 
 
-def video_to_frames(video_path, frame_folder, start, end, scale):
+def video_to_frames(video_path, frame_folder, start, end):
     os.makedirs(frame_folder, exist_ok=True)
 
     cap = cv2.VideoCapture(video_path)
@@ -74,8 +40,6 @@ def video_to_frames(video_path, frame_folder, start, end, scale):
         if not ret:
             break
 
-        frame = cv2.resize(frame, None, fx = scale, fy = scale)
-
         filename = os.path.join(frame_folder, f"{frame_id:05d}.jpg")
         cv2.imwrite(filename, frame)
 
@@ -83,13 +47,81 @@ def video_to_frames(video_path, frame_folder, start, end, scale):
     cap.release()
 
 
+def load_model(model_name):
+    model_filename = model_name + ".pt"
+    model_path = os.path.join(base_dir, model_filename)
+    model_url = 'https://dl.fbaipublicfiles.com/segment_anything_2/092824/' + model_filename
+    if not os.path.isfile(model_path):
+        urlData = requests.get(model_url).content
+        with open(model_path ,mode='wb') as f:
+            f.write(urlData)
+    return model_path
+
+def path_duplicate_numbering(file_path):
+    base, ext = os.path.splitext(file_path)
+    i = 0
+    new_file_path = f"{base}_{i}{ext}"
+    while os.path.isfile(new_file_path):
+        i += 1
+        new_file_path = f"{base}_{i}{ext}"
+    return new_file_path
+
+
 def main():
+    args = sys.argv[1:]
+    if len(args) < 5:
+        raise NotImplementedError("引数が足りません")
+    original_video_path = args[0]
+    new_fps = float(args[1])
+    start_sec = float(args[2])
+    end_sec = float(args[3])
+    model_name = args[4]
+    kernel_size = int(args[5])
+
+    print("入力動画: " + original_video_path)
+    print("フレームレート変換: " + str(new_fps))
+    print("開始秒数: " + str(start_sec))
+    print("終了秒数: " + str(end_sec))
+    print("モデル名: " + model_name)
+
+    if not model_name in model_cfg.keys():
+        raise ValueError("不正なモデル名です")
+
     print("キャッシュフォルダを初期化中...")
+
+    cache_path = os.path.join(base_dir, "Cache")
+    original_video_name, original_video_ext = os.path.splitext(os.path.basename(original_video_path))
+    cache_video_path = os.path.join(cache_path,"input"+original_video_ext)
+    cache_mask_path = os.path.join(cache_path,"output_mask.mp4")
+
     if os.path.isdir(cache_path):
         shutil.rmtree(cache_path)
     os.makedirs(cache_path)
+    shutil.copy(original_video_path, cache_video_path)
 
-    shutil.copy(original_video_path, input_video_path)
+    cap = cv2.VideoCapture(cache_video_path)
+    fps = float(cap.get(cv2.CAP_PROP_FPS))
+    cap.release()
+
+    if new_fps != 0:
+        if fps >= new_fps:
+            fps = new_fps
+
+        print("フレームレート変換中...")
+        new_cache_video_path = os.path.join(cache_path,"input"+ f"{fps:.3f}" + "fps" + original_video_ext)
+        fps_trans.fps_trans(cache_video_path, new_cache_video_path, fps)
+        cache_video_path = new_cache_video_path
+
+        original_mask_path = os.path.join(os.path.dirname(original_video_path),original_video_name + f"_mask_{start_sec:.3f}_{end_sec:.3f}_{new_fps:.3f}.mp4")
+        original_mask_path = path_duplicate_numbering(original_mask_path)
+        
+        new_original_video_path = os.path.join(os.path.dirname(original_video_path),original_video_name + f"_{new_fps:.3f}" + original_video_ext)
+        new_original_video_path = path_duplicate_numbering(new_original_video_path)
+    
+    else:
+        original_mask_path = os.path.join(os.path.dirname(original_video_path),original_video_name + f"_mask_{start_sec:.3f}_{end_sec:.3f}.mp4")
+        original_mask_path = path_duplicate_numbering(original_mask_path)
+
     print("ライブラリを読み込み中...")
 
     import torch
@@ -105,35 +137,33 @@ def main():
     # cudaの場合の最適化設定
     if device.type == "cuda":
         torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
-    
+
+    print("モデルをロード中...")
+
+    model_path = load_model(model_name)
+
     print("動画をフレームへ分割中...")
 
-    cap = cv2.VideoCapture(input_video_path)
-    frame_num = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap = cv2.VideoCapture(cache_video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
+    frame_num = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     start_frame_idx = int(start_sec*fps)
     end_frame_idx = int(end_sec*fps)
 
-    print("モデルをロード中")
-
-    if not os.path.isfile(model_path):
-        urlData = requests.get(model_url).content
-        with open(model_path ,mode='wb') as f:
-            f.write(urlData)
-
-    predictor = build_sam2_video_predictor(model_cfg[model_name], model_path, device=device)
+    if new_fps !=0:
+        end_frame_idx+=1
 
     frame_folder = os.path.join(cache_path, "frames")
-    video_to_frames(input_video_path, frame_folder, start_frame_idx, end_frame_idx, scale)
+    video_to_frames(cache_video_path, frame_folder, start_frame_idx, end_frame_idx)
 
     print("フレーム読み込み中...")
 
     start_frame_path = os.path.join(frame_folder, "00000.jpg")
 
     torch.set_grad_enabled(False)
-
+    predictor = build_sam2_video_predictor(model_cfg[model_name], model_path, device=device)
     inference_state = predictor.init_state(video_path=frame_folder)
     predictor.reset_state(inference_state)
 
@@ -175,25 +205,22 @@ def main():
         for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(
             inference_state,
             start_frame_idx=0,
-            max_frame_num_to_track=end_frame_idx-start_frame_idx-1
+            max_frame_num_to_track=end_frame_idx-start_frame_idx
             ):
-            # GPU上にあるテンソルをすぐにCPUに移す
             frame_dict = {}
             for i, out_obj_id in enumerate(out_obj_ids):
                 mask = (out_mask_logits[i] > 0.0).cpu().numpy().astype(np.uint8)
                 frame_dict[out_obj_id] = mask
             video_segments[out_frame_idx] = frame_dict
 
-            # GPUメモリを明示的に掃除
             del out_mask_logits
             torch.cuda.empty_cache()
 
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v') 
-    writer_mask = cv2.VideoWriter(output_mask_path, fourcc, fps, (frame_width, frame_height))
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    writer_mask = cv2.VideoWriter(cache_mask_path, fourcc, fps, (frame_width, frame_height))
     for out_frame_idx in range(0, frame_num):
 
         frame_result = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
-        frame_result = cv2.resize(frame_result, None, fx = scale, fy = scale)
         #frame_result = np.full((h, w, 3), (0, 255, 0), dtype=np.uint8)
 
         if out_frame_idx in range(start_frame_idx, end_frame_idx):
@@ -215,7 +242,16 @@ def main():
     shutil.rmtree(frame_folder)
     writer_mask.release()
 
-    shutil.copy(output_mask_path, original_mask_path)
+    if new_fps != 0:
+        if fps < new_fps:
+            print("フレームレート変換中...")
+            fps_trans.fps_trans(cache_mask_path, original_mask_path, new_fps)
+            fps_trans.fps_trans(cache_video_path, new_original_video_path, new_fps)
+        else:
+            shutil.copy(cache_mask_path, original_mask_path)
+            shutil.copy(cache_video_path, new_original_video_path)
+    else:
+        shutil.copy(cache_mask_path, original_mask_path)
 
 if __name__ == "__main__":
     main()

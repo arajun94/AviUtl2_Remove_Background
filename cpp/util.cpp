@@ -216,4 +216,16 @@ namespace util{
         CloseHandle(pi.hThread);
         return output;
     }
+
+    std::string path_duplicate_numbering(const std::string& file_path){
+        std::string base = file_path.substr(0, file_path.find_last_of('.'));
+        std::string ext = file_path.substr(file_path.find_last_of('.'));
+        int i = 0;
+        std::string new_file_path = base + "_" + std::to_string(i) + ext;
+        while (PathFileExistsA(new_file_path.c_str())) {
+            i++;
+            new_file_path = base + "_" + std::to_string(i) + ext;
+        }
+        return new_file_path;
+    }
 }

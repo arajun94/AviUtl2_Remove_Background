@@ -23,4 +23,6 @@ namespace util{
     BOOL cmd(PCWSTR c, BOOL show_window);
 
     std::string cmd_get_out(PCWSTR c);
+
+    std::string path_duplicate_numbering(const std::string& file_path);
 }

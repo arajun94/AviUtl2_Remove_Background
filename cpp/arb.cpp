@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <Shlwapi.h>
 #include <clocale>
+#include <cstdio>
 #include <string>
 
 #include "plugin2.h"
@@ -15,17 +16,19 @@
 #define ERROR_CAPTION L"AviUtl2 Remove Background Error"
 
 #define ID_BUTTON_FILE_OPEN 1001
-#define ID_EDIT_SCALE 1002
+#define ID_EDIT_KERNEL_SIZE 1002
 #define ID_EDIT_FILE_PATH 1004
 #define ID_BUTTON_EXEC 1005
+#define ID_CHECKBOX_TRANS_FPS 1006
 
 EDIT_HANDLE* edit_handle;
 LOG_HANDLE* logger;
 
+HWND hwnd_edit_kernel_size;
 HWND hwnd_edit_file_path;
-HWND hwnd_edit_scale;
 HWND hwnd_combo_model_name;
 HWND hwnd_button_exec;
+HWND hwnd_check_trans_fps;
 
 WCHAR plugin_dir[MAX_PATH];
 
@@ -97,14 +100,19 @@ bool exec_do(HWND hwnd){
 	std::string video_py = plugin_dir_a + "\\ARB\\Python\\sam2_video.py";
 	std::string image_py = plugin_dir_a + "\\ARB\\Python\\sam2_image.py";
 
-	//スケール取得
-	WCHAR s[16];
-	GetWindowText(hwnd_edit_scale, s, 16);
-	wchar_t* end_wc;
-	errno = 0;
-	FLOAT scale = wcstod(s, &end_wc);
-	if (errno != 0 || *end_wc != L'\0') {
-		MessageBoxEx(hwnd, L"スケールの値が不正です", ERROR_CAPTION, 0, 0);
+	//チェックボックス取得
+	DWORD fps_trans = SendMessage(hwnd_check_trans_fps, BM_GETCHECK, 0, 0) == BST_CHECKED ? TRUE : FALSE;
+
+	BOOL success;
+	WORD kernel_size = GetDlgItemInt(
+		hwnd,
+		ID_EDIT_KERNEL_SIZE,
+		&success,
+		FALSE
+	);
+
+	if (!success){
+		MessageBoxEx(hwnd, L"カーネルサイズの入力が不正です", ERROR_CAPTION, 0, 0);
 		return 0;
 	}
 
@@ -127,6 +135,16 @@ bool exec_do(HWND hwnd){
 			object_data->layer_frame = edit->get_object_layer_frame(*selected_object);
 		}
 	});
+
+	FLOAT project_fps = -1;
+
+	EDIT_INFO *edit_info = (EDIT_INFO*)malloc(sizeof(EDIT_INFO));
+	edit_handle->get_edit_info(edit_info, sizeof(int)*4);
+	project_fps = (FLOAT)edit_info->rate / edit_info->scale;
+	free(edit_info);
+	int size = std::snprintf(nullptr, 0, "%.3f", project_fps);
+	std::string fps_str(size, '\0');
+	std::snprintf(fps_str.data(), size+1, "%.3f", project_fps);
 
 	//動画の場合
 	if(object_type == OBJECT_TYPE_VIDEO){
@@ -158,18 +176,18 @@ bool exec_do(HWND hwnd){
 
 		//マスクファイルのパスを生成
 		std::string mask = util::setExt(util::decorPath(object_data.path, "_mask_"+start_s+"_"+end_s), "mp4");
-		PWSTR mask_w = util::str2wstr(mask.c_str());
-		int i=0;
-		while(PathFileExists(mask_w)){
-			mask = util::decorPath(mask, "_"+i);
-			mask_w = util::str2wstr(mask.c_str());
-			i++;
+		if(fps_trans){
+			mask = util::decorPath(mask, "_"+fps_str);
 		}
+		mask = util::path_duplicate_numbering(mask);
 
 		//Python呼び出し
 		CHAR command[1024];
-		sprintf(command, "\"%s\" \"%s\" \"%s\" %f %.3f %.3f %s", venv.c_str(), video_py.c_str(), object_data.path.c_str(), scale, start, end, model_name.c_str());
+		sprintf(command, "\"%s\" \"%s\" \"%s\" %.6f %.3f %.3f %s %d", venv.c_str(), video_py.c_str(), object_data.path.c_str(), fps_trans? project_fps : 0.0f, start, end, model_name.c_str(), kernel_size);
 		if(!util::cmd(util::str2wstr(command), true)){
+			PWSTR log_tmp = util::str2wstr(command);
+			logger->log(logger, log_tmp);
+			free(log_tmp);
 			MessageBoxEx(hwnd, L"実行が中断されました", ERROR_CAPTION, 0, 0);
 			return 0;
 		}
@@ -181,8 +199,14 @@ effect.name=動画マスク
 動画ファイル=)"+mask+u8R"(
 オフセット=)"+start_s;
 
+		if(fps_trans){
+			std::string new_path = util::decorPath(object_data.path, "_"+fps_str);
+			new_path = util::path_duplicate_numbering(new_path);
+			object_data.path = new_path;
+		}
+
 	//画像の場合
-	}else if(object_type == OBJECT_TYPE_IMAGE){
+	}else{
 		object_data.path = get_object_item_value(object_data.alias_data, "画像ファイル", "ファイル");
 
 		if(object_data.path.empty() 
@@ -192,17 +216,11 @@ effect.name=動画マスク
 		}
 		//マスクファイルのパスを生成
 		std::string mask = util::setExt(util::decorPath(object_data.path, "_mask"), "png");
-		PWSTR mask_w = util::str2wstr(mask.c_str());
-		int i=0;
-		while(PathFileExists(mask_w)){
-			mask = util::decorPath(mask, "_"+i);
-			mask_w = util::str2wstr(mask.c_str());
-			i++;
-		}
+		mask = util::path_duplicate_numbering(mask);
 
 		//Python呼び出し
 		CHAR command[1024];
-		sprintf(command, "\"%s\" \"%s\" \"%s\" %s", venv.c_str(), image_py.c_str(), object_data.path.c_str(), model_name.c_str());
+		sprintf(command, "\"%s\" \"%s\" \"%s\" %s %d", venv.c_str(), image_py.c_str(), object_data.path.c_str(), model_name.c_str(), kernel_size);
 		PWSTR tmp;
 		tmp = util::str2wstr(command);
 		if(!util::cmd(tmp, true)){
@@ -216,9 +234,6 @@ effect.name=動画マスク
 effect.name=動画マスク
 動画ファイル=)"+mask+u8R"(
 オフセット=0)";
-	}else{
-		MessageBoxEx(hwnd, L"不明なエラー", ERROR_CAPTION, 0, 0);
-		return 0;
 	}
 
 	edit_handle->call_edit_section_param(&object_data, [](void* param, EDIT_SECTION* edit) {
@@ -227,11 +242,12 @@ effect.name=動画マスク
 		edit->delete_object(*selected_object);
 		// エイリアスデータからオブジェクトを作成
 		OBJECT_HANDLE new_object = edit->create_object_from_alias(object_data->alias_data.c_str(), object_data->layer_frame.layer, object_data->layer_frame.start, 100);
-		if (new_object) {
-			logger->log(logger, L"create alias object");
-			edit->set_focus_object(new_object);
-		} else {
-			logger->warn(logger, L"create alias failed");
+		edit->set_focus_object(new_object);
+		if(object_type == OBJECT_TYPE_VIDEO){
+			PSTR tmp = (PSTR)malloc(object_data->path.size() + 1);
+			std::strcpy(tmp, object_data->path.c_str());
+			edit->set_object_item_value(new_object, L"動画ファイル", L"ファイル", tmp);
+			free(tmp);
 		}
 	});
 
@@ -274,6 +290,8 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 					SetWindowText(
 						hwnd_edit_file_path, file_path_w
 					);
+
+					EnableWindow(hwnd_check_trans_fps, object_type == OBJECT_TYPE_VIDEO ? TRUE : FALSE);
 
 					return 0;
 					break;
@@ -366,18 +384,6 @@ static inline void init_window(HOST_APP_TABLE* host){
 		nullptr
 	);
 
-	hwnd_edit_scale = CreateWindowEx(
-		0,
-		WC_EDIT,
-		L"1.0",
-		WS_CHILD | WS_BORDER,
-		220, 60, 50, 40,
-		hwnd,
-		(HMENU)ID_EDIT_SCALE,
-		GetModuleHandle(0),
-		nullptr
-	);
-
 	CreateWindowEx(
 		0,
 		WC_STATIC,
@@ -406,12 +412,47 @@ static inline void init_window(HOST_APP_TABLE* host){
 	}
 	SendMessage(hwnd_combo_model_name, CB_SETCURSEL, (WPARAM)1, (LPARAM)0);
 
+	CreateWindowEx(
+		0,
+		WC_STATIC,
+		L"隙間埋めサイズ",
+		WS_VISIBLE | WS_CHILD | SS_CENTER,
+		10, 110, 200, 40,
+		hwnd,
+		nullptr,
+		GetModuleHandle(0),
+		nullptr
+	);
+	hwnd_edit_kernel_size = CreateWindowEx(
+		0,
+		WC_EDIT,
+		L"4",
+		WS_VISIBLE | WS_CHILD | WS_BORDER | ES_NUMBER,
+		220, 110, 50, 40,
+		hwnd,
+		(HMENU)ID_EDIT_KERNEL_SIZE,
+		GetModuleHandle(0),
+		nullptr
+	);
+	hwnd_check_trans_fps = CreateWindowEx(
+		0,
+		L"BUTTON",
+		L"フレームレート変換",
+		WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+		20, 160, 300, 40,
+		hwnd,
+		(HMENU)ID_CHECKBOX_TRANS_FPS,
+		GetModuleHandle(0),
+		nullptr
+	);
+	EnableWindow(hwnd_check_trans_fps, FALSE);
+
 	hwnd_button_exec = CreateWindowEx(
 		0,
 		WC_BUTTON,
 		L"実行",
 		WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
-		10, 110, 200, 40,
+		10, 210, 200, 40,
 		hwnd,
 		(HMENU)ID_BUTTON_EXEC,
 		GetModuleHandle(0),

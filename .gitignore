@@ -2,4 +2,5 @@ build
 python/model
 python/__pycache__
 aviutl2_sdk
-python/venv
+venv
+test

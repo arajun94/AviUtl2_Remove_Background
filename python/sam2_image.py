@@ -34,8 +34,10 @@ base_dir = os.path.dirname(os.path.abspath(__file__)) # .../Python
 
 def main():
     args = sys.argv[1:]
-    if len(args) < 2:
+    if len(args) < 3:
         raise NotImplementedError("引数が足りません")
+    
+    kernel_size = int(args[2])
     
     original_image_path = args[0]
     original_image_name, original_video_ext = os.path.splitext(os.path.basename(original_image_path))
@@ -57,7 +59,6 @@ def main():
 
     if not model_name in model_cfg.keys():
         raise ValueError("不正なモデル名です")
-        exit(1)
 
     model_filename = model_name + ".pt"
     model_path = os.path.join(base_dir, model_filename)
