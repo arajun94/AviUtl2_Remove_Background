@@ -31,7 +31,7 @@ Ryzen5 5600H：約10フレーム/分
 最新版をダウンロードしてinstaller.exeを実行
 
 ## ダウンロード
-https://github.com/arajun94/AviUtl2_Remove_Background/releases
+https://github.com/arajun94/AviUtl2_Remove_Background/releases/latest
 
 cpuを使用する場合はarbx.x.zip
 
