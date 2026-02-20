@@ -15,6 +15,7 @@ model_cfg = {
 }
 
 kernel_size = 4
+image_size = 512
 
 import os
 import sys
@@ -32,12 +33,22 @@ pillow_heif.register_heif_opener()
 
 base_dir = os.path.dirname(os.path.abspath(__file__)) # .../Python
 
+def path_duplicate_numbering(file_path):
+    base, ext = os.path.splitext(file_path)
+    i = 0
+    new_file_path = f"{base}_{i}{ext}"
+    while os.path.isfile(new_file_path):
+        i += 1
+        new_file_path = f"{base}_{i}{ext}"
+    return new_file_path
+
 def main():
     args = sys.argv[1:]
-    if len(args) < 3:
+    if len(args) < 4:
         raise NotImplementedError("引数が足りません")
     
     kernel_size = int(args[2])
+    image_size = int(args[3])
     
     original_image_path = args[0]
     original_image_name, original_video_ext = os.path.splitext(os.path.basename(original_image_path))
@@ -49,10 +60,7 @@ def main():
     model_name = args[1]
 
     original_mask_path = os.path.join(os.path.dirname(original_image_path), original_image_name + f"_mask.png")
-    i=0
-    while(os.path.isfile(original_mask_path)):
-        original_mask_path = os.path.join(os.path.dirname(original_image_path), original_image_name + f"_mask_{i}.png")
-        i+=1
+    original_mask_path = path_duplicate_numbering(original_mask_path)
 
     print("入力画像: " + original_image_path)
     print("モデル名: " + model_name)
@@ -92,7 +100,19 @@ def main():
         with open(model_path ,mode='wb') as f:
             f.write(urlData)
 
-    predictor = build_sam2_video_predictor(model_cfg[model_name], model_path, device=device)
+    hydra_overrides_extra = [
+        # dynamically fall back to multi-mask if the single mask is not stable
+        "++model.sam_mask_decoder_extra_args.dynamic_multimask_via_stability=true",
+        "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_delta=0.05",
+        "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_thresh=0.98",
+        # the sigmoid mask logits on interacted frames with clicks in the memory encoder so that the encoded masks are exactly as what users see from clicking
+        "++model.binarize_mask_from_pts_for_mem_enc=true",
+        "++image_size="+image_size.__str__(),
+        # fill small holes in the low-res masks up to `fill_hole_area` (before resizing them to the original video resolution)
+        "++model.fill_hole_area="+kernel_size.__str__()
+    ]
+
+    predictor = build_sam2_video_predictor(model_cfg[model_name], model_path, device=device, apply_postprocessing=False, hydra_overrides_extra=hydra_overrides_extra)
 
     print("フレーム読み込み中...")
     frame_folder = os.path.join(cache_path, "frames")

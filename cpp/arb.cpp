@@ -17,6 +17,7 @@
 
 #define ID_BUTTON_FILE_OPEN 1001
 #define ID_EDIT_KERNEL_SIZE 1002
+#define ID_EDIT_FRAME_RESIZE 1003
 #define ID_EDIT_FILE_PATH 1004
 #define ID_BUTTON_EXEC 1005
 #define ID_CHECKBOX_TRANS_FPS 1006
@@ -25,12 +26,15 @@ EDIT_HANDLE* edit_handle;
 LOG_HANDLE* logger;
 
 HWND hwnd_edit_kernel_size;
+HWND hwnd_edit_frame_resize;
 HWND hwnd_edit_file_path;
 HWND hwnd_combo_model_name;
 HWND hwnd_button_exec;
 HWND hwnd_check_trans_fps;
 
 WCHAR plugin_dir[MAX_PATH];
+
+#define OBJECT_SELECT_MESSAGE L"（タイムラインから画像または動画オブジェクトを選択し選択ボタンを押下）"
 
 PCWSTR strItem[] = {
     L"sam2.1_hiera_tiny",
@@ -110,9 +114,18 @@ bool exec_do(HWND hwnd){
 		&success,
 		FALSE
 	);
-
 	if (!success){
 		MessageBoxEx(hwnd, L"カーネルサイズの入力が不正です", ERROR_CAPTION, 0, 0);
+		return 0;
+	}
+	WORD frame_resize = GetDlgItemInt(
+		hwnd,
+		ID_EDIT_FRAME_RESIZE,
+		&success,
+		FALSE
+	);
+	if (!success){
+		MessageBoxEx(hwnd, L"フレームリサイズの入力が不正です", ERROR_CAPTION, 0, 0);
 		return 0;
 	}
 
@@ -142,7 +155,8 @@ bool exec_do(HWND hwnd){
 	edit_handle->get_edit_info(edit_info, sizeof(int)*4);
 	project_fps = (FLOAT)edit_info->rate / edit_info->scale;
 	free(edit_info);
-	int size = std::snprintf(nullptr, 0, "%.3f", project_fps);
+	
+	WORD size = std::snprintf(nullptr, 0, "%.3f", project_fps);
 	std::string fps_str(size, '\0');
 	std::snprintf(fps_str.data(), size+1, "%.3f", project_fps);
 
@@ -183,7 +197,7 @@ bool exec_do(HWND hwnd){
 
 		//Python呼び出し
 		CHAR command[1024];
-		sprintf(command, "\"%s\" \"%s\" \"%s\" %.6f %.3f %.3f %s %d", venv.c_str(), video_py.c_str(), object_data.path.c_str(), fps_trans? project_fps : 0.0f, start, end, model_name.c_str(), kernel_size);
+		sprintf(command, "\"%s\" \"%s\" \"%s\" %.6f %.3f %.3f %s %d %d", venv.c_str(), video_py.c_str(), object_data.path.c_str(), fps_trans? project_fps : 0.0f, start, end, model_name.c_str(), kernel_size, frame_resize);
 		if(!util::cmd(util::str2wstr(command), true)){
 			PWSTR log_tmp = util::str2wstr(command);
 			logger->log(logger, log_tmp);
@@ -220,7 +234,7 @@ effect.name=動画マスク
 
 		//Python呼び出し
 		CHAR command[1024];
-		sprintf(command, "\"%s\" \"%s\" \"%s\" %s %d", venv.c_str(), image_py.c_str(), object_data.path.c_str(), model_name.c_str(), kernel_size);
+		sprintf(command, "\"%s\" \"%s\" \"%s\" %s %d %d", venv.c_str(), image_py.c_str(), object_data.path.c_str(), model_name.c_str(), kernel_size, frame_resize);
 		PWSTR tmp;
 		tmp = util::str2wstr(command);
 		if(!util::cmd(tmp, true)){
@@ -252,7 +266,7 @@ effect.name=動画マスク
 	});
 
 	SetWindowText(
-		hwnd_edit_file_path, L"（トラックバーから画像または動画オブジェクトを選択し選択ボタンを押下）"
+		hwnd_edit_file_path, OBJECT_SELECT_MESSAGE
 	);
 
 	*selected_object = nullptr;
@@ -375,7 +389,7 @@ static inline void init_window(HOST_APP_TABLE* host){
 	hwnd_edit_file_path = CreateWindowEx(
 		0,
 		WC_EDIT,
-		L"（トラックバーから画像または動画オブジェクトを選択し選択ボタンを押下）",
+		OBJECT_SELECT_MESSAGE,
 		WS_VISIBLE | WS_CHILD | ES_READONLY,
 		440, 10, 800, 40,
 		hwnd,
@@ -412,6 +426,29 @@ static inline void init_window(HOST_APP_TABLE* host){
 	}
 	SendMessage(hwnd_combo_model_name, CB_SETCURSEL, (WPARAM)1, (LPARAM)0);
 
+
+	CreateWindowEx(
+		0,
+		WC_STATIC,
+		L"フレームリサイズ",
+		WS_CHILD | SS_CENTER,
+		10, 110, 200, 40,
+		hwnd,
+		nullptr,
+		GetModuleHandle(0),
+		nullptr
+	);
+	hwnd_edit_frame_resize = CreateWindowEx(
+		0,
+		WC_EDIT,
+		L"512",
+		WS_CHILD | WS_BORDER | ES_NUMBER,
+		220, 110, 50, 40,
+		hwnd,
+		(HMENU)ID_EDIT_FRAME_RESIZE,
+		GetModuleHandle(0),
+		nullptr
+	);
 	CreateWindowEx(
 		0,
 		WC_STATIC,
@@ -423,6 +460,7 @@ static inline void init_window(HOST_APP_TABLE* host){
 		GetModuleHandle(0),
 		nullptr
 	);
+
 	hwnd_edit_kernel_size = CreateWindowEx(
 		0,
 		WC_EDIT,

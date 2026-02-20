@@ -1,7 +1,14 @@
 import av
 from fractions import Fraction
-
 #AI生成
+
+def get_best_h264_encoder():
+    try:
+        av.codec.CodecContext.create("h264_nvenc", "w")
+        print("nvencを使用")
+        return "h264_nvenc"
+    except:
+        return "libx264"
 
 def fps_trans(input_path, output_path, target_fps):
     """
@@ -15,7 +22,7 @@ def fps_trans(input_path, output_path, target_fps):
     fps_fraction = Fraction(target_fps).limit_denominator()
     
     # 出力ストリームの設定
-    out_video = output.add_stream('libx264', rate=fps_fraction)
+    out_video = output.add_stream(get_best_h264_encoder(), rate=fps_fraction)
     out_video.width = in_video.width
     out_video.height = in_video.height
     out_video.pix_fmt = 'yuv420p'

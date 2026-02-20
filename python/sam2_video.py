@@ -14,7 +14,9 @@ model_cfg = {
     "sam2.1_hiera_large": "configs/sam2.1/sam2.1_hiera_l.yaml"
 }
 
+image_size = 512
 kernel_size = 4
+maskmem = 7
 
 import os
 import sys
@@ -42,6 +44,7 @@ def video_to_frames(video_path, frame_folder, start, end):
 
         filename = os.path.join(frame_folder, f"{frame_id:05d}.jpg")
         cv2.imwrite(filename, frame)
+        break
 
         frame_id+=1
     cap.release()
@@ -69,7 +72,7 @@ def path_duplicate_numbering(file_path):
 
 def main():
     args = sys.argv[1:]
-    if len(args) < 5:
+    if len(args) < 7:
         raise NotImplementedError("引数が足りません")
     original_video_path = args[0]
     new_fps = float(args[1])
@@ -77,6 +80,7 @@ def main():
     end_sec = float(args[3])
     model_name = args[4]
     kernel_size = int(args[5])
+    image_size = int(args[6])
 
     print("入力動画: " + original_video_path)
     print("フレームレート変換: " + str(new_fps))
@@ -91,7 +95,7 @@ def main():
 
     cache_path = os.path.join(base_dir, "Cache")
     original_video_name, original_video_ext = os.path.splitext(os.path.basename(original_video_path))
-    cache_video_path = os.path.join(cache_path,"input"+original_video_ext)
+    cache_video_path = os.path.join(cache_path,"input.mp4")
     cache_mask_path = os.path.join(cache_path,"output_mask.mp4")
 
     if os.path.isdir(cache_path):
@@ -108,7 +112,7 @@ def main():
             fps = new_fps
 
         print("フレームレート変換中...")
-        new_cache_video_path = os.path.join(cache_path,"input"+ f"{fps:.3f}" + "fps" + original_video_ext)
+        new_cache_video_path = os.path.join(cache_path,"input"+ f"{fps:.3f}" + "fps.mp4")
         fps_trans.fps_trans(cache_video_path, new_cache_video_path, fps)
         cache_video_path = new_cache_video_path
 
@@ -117,7 +121,7 @@ def main():
         
         new_original_video_path = os.path.join(os.path.dirname(original_video_path),original_video_name + f"_{new_fps:.3f}" + original_video_ext)
         new_original_video_path = path_duplicate_numbering(new_original_video_path)
-    
+
     else:
         original_mask_path = os.path.join(os.path.dirname(original_video_path),original_video_name + f"_mask_{start_sec:.3f}_{end_sec:.3f}.mp4")
         original_mask_path = path_duplicate_numbering(original_mask_path)
@@ -151,6 +155,7 @@ def main():
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     start_frame_idx = int(start_sec*fps)
     end_frame_idx = int(end_sec*fps)
+    cap.release()
 
     if new_fps !=0:
         end_frame_idx+=1
@@ -162,9 +167,22 @@ def main():
 
     start_frame_path = os.path.join(frame_folder, "00000.jpg")
 
+    hydra_overrides_extra = [
+        # dynamically fall back to multi-mask if the single mask is not stable
+        "++model.sam_mask_decoder_extra_args.dynamic_multimask_via_stability=true",
+        "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_delta=0.05",
+        "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_thresh=0.98",
+        # the sigmoid mask logits on interacted frames with clicks in the memory encoder so that the encoded masks are exactly as what users see from clicking
+        "++model.binarize_mask_from_pts_for_mem_enc=true",
+        "++num_maskmem=" + maskmem,
+        "++image_size=" + image_size.__str__(),
+        # fill small holes in the low-res masks up to `fill_hole_area` (before resizing them to the original video resolution)
+        "++model.fill_hole_area=" + kernel_size.__str__()
+    ]
+
     torch.set_grad_enabled(False)
-    predictor = build_sam2_video_predictor(model_cfg[model_name], model_path, device=device)
-    inference_state = predictor.init_state(video_path=frame_folder)
+    predictor = build_sam2_video_predictor(model_cfg[model_name], model_path, device=device, apply_postprocessing=False, hydra_overrides_extra=hydra_overrides_extra)
+    inference_state = predictor.init_state(video_path=cache_video_path, async_loading_frames=False)
     predictor.reset_state(inference_state)
 
     print("別ウィンドウで点をプロットして下さい")
@@ -184,7 +202,7 @@ def main():
         for ann_obj_id, [points,labels] in enumerate(prompts):
             _, out_obj_ids, out_mask_logits = predictor.add_new_points_or_box(
                 inference_state=inference_state,
-                frame_idx=0,
+                frame_idx=start_frame_idx,
                 obj_id=ann_obj_id,
                 points=points,
                 labels=labels,
@@ -204,8 +222,8 @@ def main():
         video_segments = {}
         for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(
             inference_state,
-            start_frame_idx=0,
-            max_frame_num_to_track=end_frame_idx-start_frame_idx
+            start_frame_idx=start_frame_idx,
+            max_frame_num_to_track=end_frame_idx-start_frame_idx-1
             ):
             frame_dict = {}
             for i, out_obj_id in enumerate(out_obj_ids):
@@ -224,13 +242,11 @@ def main():
         #frame_result = np.full((h, w, 3), (0, 255, 0), dtype=np.uint8)
 
         if out_frame_idx in range(start_frame_idx, end_frame_idx):
-            for out_obj_id, out_mask in video_segments[out_frame_idx-start_frame_idx].items():
+            for out_obj_id, out_mask in video_segments[out_frame_idx].items():
 
                 mask_2d = out_mask.squeeze() if out_mask.ndim == 3 else out_mask
 
                 cv2_mask = mask_2d.astype(np.uint8) * 255
-                kernel = np.ones((kernel_size, kernel_size), np.uint8)
-                cv2_mask = cv2.morphologyEx(cv2_mask, cv2.MORPH_CLOSE, kernel)
                 cv2_mask = cv2.cvtColor(cv2_mask, cv2.COLOR_GRAY2BGR)
 
                 frame_result = cv2.bitwise_or(frame_result, cv2_mask)

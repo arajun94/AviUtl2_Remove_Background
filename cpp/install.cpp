@@ -5,13 +5,18 @@
 
 #include "util.hpp"
 
-
+#ifdef DEBUG
+#define PROJECT_NAME L"(Debug)Aviutl2 Remove Background Installer"
+#else
 #define PROJECT_NAME L"Aviutl2 Remove Background Installer"
+#endif
+
 #define ID_BUTTON_START 1001
 #define ID_BUTTON_SET_INSTALL_PATH 1002
 
 #define CLIENT_WIDTH 640
 #define CLIENT_HEIGHT 360
+
 
 #ifdef USE_CUDA
 #define START_LABEL L"AviUtl2 Remove Background(CUDA)\nをインストールします"
