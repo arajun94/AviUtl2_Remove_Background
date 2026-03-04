@@ -174,10 +174,10 @@ def main():
         "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_thresh=0.98",
         # the sigmoid mask logits on interacted frames with clicks in the memory encoder so that the encoded masks are exactly as what users see from clicking
         "++model.binarize_mask_from_pts_for_mem_enc=true",
-        "++num_maskmem=" + maskmem,
-        "++image_size=" + image_size.__str__(),
+        "++num_maskmem=" + str(maskmem),
+        "++image_size=" + str(image_size),
         # fill small holes in the low-res masks up to `fill_hole_area` (before resizing them to the original video resolution)
-        "++model.fill_hole_area=" + kernel_size.__str__()
+        "++model.fill_hole_area=" + str(kernel_size)
     ]
 
     torch.set_grad_enabled(False)
